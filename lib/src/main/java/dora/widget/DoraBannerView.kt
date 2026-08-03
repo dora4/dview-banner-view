@@ -18,6 +18,7 @@ import android.widget.ImageView
 import android.widget.Scroller
 import androidx.annotation.DrawableRes
 import androidx.core.content.ContextCompat
+import dora.widget.banner.R
 import kotlin.math.abs
 import kotlin.math.max
 
