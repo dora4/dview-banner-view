@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<resources>
+
+    <declare-styleable name="DoraBannerView">
+
+        <!-- 是否自动轮播 -->
+        <attr
+            name="dview_bv_autoPlay"
+            format="boolean" />
+
+        <!-- 自动轮播间隔，单位毫秒 -->
+        <attr
+            name="dview_bv_interval"
+            format="integer" />
+
+        <!-- 滑动动画持续时间，单位毫秒 -->
+        <attr
+            name="dview_bv_duration"
+            format="integer" />
+
+        <!-- 是否循环轮播 -->
+        <attr
+            name="dview_bv_loop"
+            format="boolean" />
+
+        <!-- 是否显示页面指示器 -->
+        <attr
+            name="dview_bv_indicatorVisible"
+            format="boolean" />
+
+        <!-- 指示器圆点半径 -->
+        <attr
+            name="dview_bv_indicatorRadius"
+            format="dimension" />
+
+        <!-- 指示器圆点间距 -->
+        <attr
+            name="dview_bv_indicatorSpace"
+            format="dimension" />
+
+        <!-- 指示器距离底部的距离 -->
+        <attr
+            name="dview_bv_indicatorBottomMargin"
+            format="dimension" />
+
+        <!-- 未选中指示器颜色 -->
+        <attr
+            name="dview_bv_indicatorNormalColor"
+            format="color|reference" />
+
+        <!-- 选中指示器颜色 -->
+        <attr
+            name="dview_bv_indicatorSelectedColor"
+            format="color|reference" />
+
+    </declare-styleable>
+
+</resources>
