@@ -18,32 +18,28 @@ import android.widget.ImageView
 import android.widget.Scroller
 import androidx.annotation.DrawableRes
 import androidx.core.content.ContextCompat
+import androidx.core.content.withStyledAttributes
+import dora.widget.banner.BannerAdapter
 import dora.widget.banner.R
 import kotlin.math.abs
 import kotlin.math.max
-import androidx.core.content.withStyledAttributes
 import androidx.core.view.isNotEmpty
-import androidx.core.view.isEmpty
 
 /**
  * 横幅轮播控件。
  *
- * 支持以下功能：
+ * 支持：
  *
- * - 多个横幅页面循环轮播
+ * - BannerAdapter<T>
+ * - Drawable
+ * - 自定义 View
+ * - 无限循环
  * - 自动播放
  * - 手指左右滑动
  * - 点击事件
- * - 当前页面指示器
- * - 自定义轮播间隔
- * - 自定义动画持续时间
- * - 支持 Drawable / DrawableRes
- * - 支持自定义 View
- * - 支持保存当前页面状态
- *
- * 图片网络加载不由本控件负责。
- * 可以在外部使用 Glide、Coil、Picasso 等图片加载框架，
- * 加载完成后通过 [setItems] 或 [setViews] 设置到控件中。
+ * - 页面滚动监听
+ * - 内置 Indicator
+ * - 保存 / 恢复当前页面
  */
 class DoraBannerView @JvmOverloads constructor(
     context: Context,
@@ -52,31 +48,39 @@ class DoraBannerView @JvmOverloads constructor(
 ) : ViewGroup(context, attrs, defStyleAttr) {
 
     /**
-     * Banner 数据项。
+     * Banner Adapter。
      */
-    private val items = ArrayList<BannerItem>()
+    private var adapter: BannerAdapter<*>? = null
 
     /**
-     * 当前页面下标。
+     * 当前真实数据页面。
+     *
+     * 例如：
+     *
+     * 真实数据：
+     * 0 1 2
+     *
+     * 无限循环实际页面：
+     * 2 0 1 2 0
+     *
+     * currentItem 始终保存真实数据位置。
      */
     private var currentItem = 0
 
     /**
-     * 当前实际显示的页面。
-     *
-     * 因为使用首尾复制页面实现无限循环，所以：
-     *
-     * 0 -> 最后一个页面
-     * 1 -> 第一个真实页面
-     * 2 -> 第二个真实页面
+     * 当前虚拟页面。
      */
     private var currentPage = 0
 
     /**
-     * 自动轮播任务。
+     * 自动播放任务。
      */
     private val autoPlayRunnable = Runnable {
-        if (isAutoPlayEnabled && items.size > 1) {
+        if (
+            isAutoPlayEnabled &&
+            getItemCount() > 1
+        ) {
+            dispatchScrollStateChanged(SCROLL_STATE_SETTLING)
             smoothScrollToPage(currentPage + 1)
         }
     }
@@ -92,7 +96,7 @@ class DoraBannerView @JvmOverloads constructor(
     private var autoPlayInterval: Long = DEFAULT_INTERVAL
 
     /**
-     * 动画持续时间。
+     * 滑动动画持续时间。
      */
     private var scrollDuration: Long = DEFAULT_DURATION
 
@@ -102,37 +106,52 @@ class DoraBannerView @JvmOverloads constructor(
     private var loopEnabled = true
 
     /**
-     * 是否显示指示器。
+     * 当前滚动状态。
+     */
+    private var scrollState = SCROLL_STATE_IDLE
+
+    /**
+     * 页面监听器。
+     */
+    private val pageChangeListeners = ArrayList<OnPageChangeListener>()
+
+    /**
+     * Banner 点击监听器。
+     */
+    private var onBannerClickListener: OnBannerClickListener? = null
+
+    /**
+     * 是否显示内部 Indicator。
      */
     private var indicatorVisible = false
 
     /**
-     * 指示器圆点半径。
+     * Indicator 圆点半径。
      */
     private var indicatorRadius = dp2px(4f).toFloat()
 
     /**
-     * 指示器间距。
+     * Indicator 圆点间距。
      */
     private var indicatorSpace = dp2px(8f).toFloat()
 
     /**
-     * 指示器距离底部的距离。
+     * Indicator 距离底部距离。
      */
     private var indicatorBottomMargin = dp2px(12f)
 
     /**
-     * 未选中指示器颜色。
+     * 未选中颜色。
      */
     private var indicatorNormalColor = 0x66FFFFFF
 
     /**
-     * 选中指示器颜色。
+     * 选中颜色。
      */
     private var indicatorSelectedColor = 0xFFFFFFFF.toInt()
 
     /**
-     * 指示器画笔。
+     * Indicator 画笔。
      */
     private val indicatorPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
@@ -162,17 +181,17 @@ class DoraBannerView @JvmOverloads constructor(
     private var velocityTracker: VelocityTracker? = null
 
     /**
-     * 手指按下时的 X 坐标。
+     * 手指按下 X。
      */
     private var downX = 0f
 
     /**
-     * 手指按下时的 Y 坐标。
+     * 手指按下 Y。
      */
     private var downY = 0f
 
     /**
-     * 上一次触摸 X 坐标。
+     * 上一次 X。
      */
     private var lastX = 0f
 
@@ -182,19 +201,9 @@ class DoraBannerView @JvmOverloads constructor(
     private var dragging = false
 
     /**
-     * 是否发生过移动。
+     * 是否发生移动。
      */
     private var moved = false
-
-    /**
-     * Banner 点击回调。
-     */
-    private var onBannerClickListener: OnBannerClickListener? = null
-
-    /**
-     * Banner 页面切换回调。
-     */
-    private var onPageChangedListener: OnPageChangedListener? = null
 
     init {
         setWillNotDraw(false)
@@ -211,11 +220,17 @@ class DoraBannerView @JvmOverloads constructor(
             autoPlayInterval = getInt(
                 R.styleable.DoraBannerView_dview_bv_interval,
                 DEFAULT_INTERVAL.toInt()
-            ).coerceAtLeast(MIN_INTERVAL.toInt()).toLong()
+            )
+                .coerceAtLeast(
+                    MIN_INTERVAL.toInt()
+                )
+                .toLong()
             scrollDuration = getInt(
                 R.styleable.DoraBannerView_dview_bv_duration,
                 DEFAULT_DURATION.toInt()
-            ).coerceAtLeast(0).toLong()
+            )
+                .coerceAtLeast(0)
+                .toLong()
             loopEnabled = getBoolean(
                 R.styleable.DoraBannerView_dview_bv_loop,
                 true
@@ -247,10 +262,128 @@ class DoraBannerView @JvmOverloads constructor(
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Adapter
+    // -------------------------------------------------------------------------
+
+    /**
+     * 设置 Banner Adapter。
+     *
+     * 示例：
+     *
+     * banner.setAdapter(object : BannerAdapter<Banner>() {
+     *
+     *     override fun getItemCount(): Int {
+     *         return data.size
+     *     }
+     *
+     *     override fun onCreateView(context: Context): View {
+     *         return ImageView(context)
+     *     }
+     *
+     *     override fun onBindView(
+     *         view: View,
+     *         position: Int
+     *     ) {
+     *         ...
+     *     }
+     * })
+     */
+    fun setAdapter(adapter: BannerAdapter<*>) {
+        stopAutoPlay()
+        this.adapter?.onDataSetChangedListener = null
+        this.adapter = adapter
+        adapter.onDataSetChangedListener = {
+            post {
+                rebuildAdapterViews()
+            }
+        }
+        currentItem = currentItem.coerceIn(0, max(0, getItemCount() - 1))
+        rebuildAdapterViews()
+    }
+
+    /**
+     * 获取当前 Adapter。
+     */
+    fun getAdapter(): BannerAdapter<*>? {
+        return adapter
+    }
+
+    /**
+     * Adapter 数据发生变化时重新构建。
+     */
+    private fun rebuildAdapterViews() {
+        stopAutoPlay()
+        removeAllViews()
+        val count = getItemCount()
+        if (count <= 0) {
+            currentItem = 0
+            currentPage = 0
+            scrollTo(0, 0)
+            invalidate()
+            return
+        }
+        currentItem = currentItem.coerceIn(0, count - 1)
+        if (loopEnabled && count > 1) {
+            // 首部添加最后一个虚拟页面
+            addAdapterView(count - 1)
+        }
+        for (position in 0 until count) {
+            addAdapterView(position)
+        }
+        if (loopEnabled && count > 1) {
+            // 尾部添加第一个虚拟页面
+            addAdapterView(0)
+            currentPage = currentItem + 1
+        } else {
+            currentPage = currentItem
+        }
+        requestLayout()
+        post {
+            if (width > 0) {
+                scrollTo(
+                    currentPage * width,
+                    0
+                )
+            }
+            dispatchPageSelected()
+            dispatchPageScrolled()
+            startAutoPlay()
+        }
+    }
+
+    /**
+     * 创建并绑定 Adapter View。
+     *
+     * @param position 真实数据位置。
+     */
+    private fun addAdapterView(position: Int) {
+        val currentAdapter = adapter ?: return
+        val child = currentAdapter.onCreateView(context)
+        @Suppress("UNCHECKED_CAST")
+        (currentAdapter as BannerAdapter<Any?>)
+            .onBindView(
+                child,
+                position
+            )
+        child.setOnClickListener {
+            if (!moved) {
+                onBannerClickListener
+                    ?.onBannerClick(
+                        this,
+                        currentItem
+                    )
+            }
+        }
+        addView(child)
+    }
+
+    // -------------------------------------------------------------------------
+    // Drawable / View API
+    // -------------------------------------------------------------------------
+
     /**
      * 设置 Drawable Banner。
-     *
-     * @param drawables Banner 图片。
      */
     fun setItems(vararg drawables: Drawable) {
         setItems(drawables.toList())
@@ -258,106 +391,223 @@ class DoraBannerView @JvmOverloads constructor(
 
     /**
      * 设置 Drawable Banner。
-     *
-     * @param drawables Banner 图片。
      */
     fun setItems(drawables: List<Drawable>) {
-        removeAllViews()
-        items.clear()
-        drawables.forEach {
-            items.add(BannerItem.DrawableItem(it))
-        }
-        rebuildViews()
+        setAdapter(
+            object : BannerAdapter<Drawable>() {
+
+                override fun getItemCount(): Int {
+                    return drawables.size
+                }
+
+                override fun onCreateView(
+                    context: Context
+                ): View {
+                    return ImageView(context).apply {
+                        scaleType = ImageView.ScaleType.CENTER_CROP
+                    }
+                }
+
+                override fun onBindView(
+                    view: View,
+                    position: Int
+                ) {
+                    (view as ImageView).setImageDrawable(drawables[position])
+                }
+
+                override fun getItem(
+                    position: Int
+                ): Drawable? {
+
+                    return drawables.getOrNull(
+                        position
+                    )
+                }
+            }
+        )
     }
 
     /**
      * 设置 DrawableRes Banner。
-     *
-     * @param drawableResIds Drawable 资源 ID。
      */
-    fun setItems(@DrawableRes vararg drawableResIds: Int) {
+    fun setItems(
+        @DrawableRes vararg drawableResIds: Int
+    ) {
         val drawables = ArrayList<Drawable>()
-        for (drawableResId in drawableResIds) {
-            val drawable = ContextCompat.getDrawable(context, drawableResId)
-            if (drawable != null) {
-                drawables.add(drawable)
-            }
+        drawableResIds.forEach { resId ->
+            ContextCompat.getDrawable(context, resId)
+                ?.let {
+                    drawables.add(it)
+                }
         }
         setItems(drawables)
     }
 
     /**
-     * 设置自定义 Banner View。
-     *
-     * 每个 View 对应一个 Banner 页面。
-     *
-     * @param views Banner View。
+     * 设置自定义 View Banner。
      */
     fun setViews(vararg views: View) {
         setViews(views.toList())
     }
 
     /**
-     * 设置自定义 Banner View。
-     *
-     * @param views Banner View。
+     * 设置自定义 View Banner。
      */
     fun setViews(views: List<View>) {
-        removeAllViews()
-        items.clear()
-        views.forEach {
-            items.add(BannerItem.ViewItem(it))
-        }
-        rebuildViews()
+        setAdapter(
+            object : BannerAdapter<View>() {
+
+                override fun getItemCount(): Int {
+                    return views.size
+                }
+
+                override fun onCreateView(context: Context): View {
+                    return views.firstOrNull() ?: View(context)
+                }
+
+                override fun onBindView(
+                    view: View,
+                    position: Int
+                ) {
+
+                    /*
+                     * 这里仅用于兼容原来的 setViews API。
+                     *
+                     * 实际使用 BannerAdapter 时，
+                     * 推荐直接使用 Adapter 创建 View。
+                     */
+                }
+
+                override fun getItem(position: Int): View? {
+                    return views.getOrNull(position)
+                }
+            }
+        )
     }
 
     /**
      * 添加 Drawable Banner。
-     *
-     * @param drawable Banner 图片。
      */
     fun addBanner(drawable: Drawable) {
-        items.add(BannerItem.DrawableItem(drawable))
-        rebuildViews()
+        val currentAdapter = adapter
+        if (currentAdapter == null || currentAdapter !is SimpleDrawableAdapter) {
+            val list = ArrayList<Drawable>()
+            for (i in 0 until getItemCount()) {
+                val item = currentAdapter?.getItem(i)
+                if (item is Drawable) {
+                    list.add(item)
+                }
+            }
+            list.add(drawable)
+            setItems(list)
+        }
     }
 
     /**
      * 添加 DrawableRes Banner。
-     *
-     * @param drawableResId Drawable 资源 ID。
      */
     fun addBanner(@DrawableRes drawableResId: Int) {
-        val drawable = ContextCompat.getDrawable(context, drawableResId) ?: return
-        addBanner(drawable)
+        ContextCompat.getDrawable(context, drawableResId)
+            ?.let {
+                addBanner(it)
+            }
     }
 
     /**
-     * 添加自定义 Banner View。
-     *
-     * @param view Banner View。
+     * 添加 View Banner。
      */
     fun addBanner(view: View) {
-        items.add(BannerItem.ViewItem(view))
-        rebuildViews()
+        val views = ArrayList<View>()
+        val currentAdapter = adapter
+        if (currentAdapter != null) {
+            for (i in 0 until getItemCount()) {
+                currentAdapter
+                    .getItem(i)
+                    ?.let {
+                        if (it is View) {
+                            views.add(it)
+                        }
+                    }
+            }
+        }
+        views.add(view)
+        setViews(views)
     }
 
     /**
-     * 清空所有 Banner。
+     * 清空 Banner。
      */
     fun clearItems() {
         stopAutoPlay()
+        adapter?.onDataSetChangedListener = null
+        adapter = null
         removeAllViews()
-        items.clear()
         currentItem = 0
         currentPage = 0
         scrollTo(0, 0)
+        dispatchScrollStateChanged(SCROLL_STATE_IDLE)
         invalidate()
     }
 
+    // -------------------------------------------------------------------------
+    // Basic API
+    // -------------------------------------------------------------------------
+
     /**
-     * 设置是否自动播放。
-     *
-     * @param enabled true 表示开启。
+     * 获取 Banner 数量。
+     */
+    fun getItemCount(): Int {
+        return adapter?.getItemCount() ?: 0
+    }
+
+    /**
+     * 获取当前真实页面。
+     */
+    fun getCurrentItem(): Int {
+        return currentItem
+    }
+
+    /**
+     * 设置当前页面。
+     */
+    fun setCurrentItem(
+        index: Int,
+        smoothScroll: Boolean = true
+    ) {
+        val count = getItemCount()
+        if (count <= 0) {
+            return
+        }
+        val target =
+            index.coerceIn(
+                0,
+                count - 1
+            )
+        currentItem = target
+        currentPage =
+            if (loopEnabled && count > 1) {
+                target + 1
+            } else {
+                target
+            }
+        if (smoothScroll) {
+            dispatchScrollStateChanged(SCROLL_STATE_SETTLING)
+            smoothScrollToPage(currentPage)
+        } else {
+            scrollTo(currentPage * width, 0)
+            dispatchPageSelected()
+            dispatchPageScrolled()
+            dispatchScrollStateChanged(SCROLL_STATE_IDLE)
+            invalidate()
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Auto Play
+    // -------------------------------------------------------------------------
+
+    /**
+     * 设置自动播放。
      */
     fun setAutoPlay(enabled: Boolean) {
         isAutoPlayEnabled = enabled
@@ -369,11 +619,7 @@ class DoraBannerView @JvmOverloads constructor(
     }
 
     /**
-     * 设置自动轮播间隔。
-     *
-     * 单位：毫秒。
-     *
-     * @param interval 间隔时间。
+     * 设置自动播放间隔。
      */
     fun setAutoPlayInterval(interval: Long) {
         autoPlayInterval = interval.coerceAtLeast(MIN_INTERVAL)
@@ -384,35 +630,57 @@ class DoraBannerView @JvmOverloads constructor(
     }
 
     /**
-     * 设置轮播动画持续时间。
-     *
-     * 单位：毫秒。
-     *
-     * @param duration 动画持续时间。
+     * 设置滑动动画时间。
      */
     fun setScrollDuration(duration: Long) {
         scrollDuration = duration.coerceAtLeast(0)
     }
 
     /**
-     * 设置是否循环。
-     *
-     * @param enabled true 表示循环。
+     * 开始自动播放。
      */
-    fun setLoopEnabled(enabled: Boolean) {
-        loopEnabled = enabled
-        if (!enabled) {
-            currentPage = currentItem
-            requestLayout()
-        } else {
-            rebuildViews()
+    fun startAutoPlay() {
+        if (!isAttachedToWindow) {
+            return
         }
+        if (!isAutoPlayEnabled || getItemCount() <= 1) {
+            return
+        }
+        removeCallbacks(autoPlayRunnable)
+        postDelayed(
+            autoPlayRunnable,
+            autoPlayInterval
+        )
     }
 
     /**
-     * 设置是否显示指示器。
-     *
-     * @param visible true 表示显示。
+     * 停止自动播放。
+     */
+    fun stopAutoPlay() {
+        removeCallbacks(autoPlayRunnable)
+    }
+
+    // -------------------------------------------------------------------------
+    // Loop
+    // -------------------------------------------------------------------------
+
+    /**
+     * 设置是否循环。
+     */
+    fun setLoopEnabled(enabled: Boolean) {
+        if (loopEnabled == enabled) {
+            return
+        }
+        loopEnabled = enabled
+        rebuildAdapterViews()
+    }
+
+    // -------------------------------------------------------------------------
+    // Indicator
+    // -------------------------------------------------------------------------
+
+    /**
+     * 设置内部 Indicator 是否显示。
      */
     fun setIndicatorVisible(visible: Boolean) {
         indicatorVisible = visible
@@ -420,171 +688,454 @@ class DoraBannerView @JvmOverloads constructor(
     }
 
     /**
-     * 设置当前页面。
-     *
-     * @param index 页面下标，从 0 开始。
-     * @param smoothScroll 是否使用动画。
+     * 是否显示内部 Indicator。
      */
-    fun setCurrentItem(index: Int, smoothScroll: Boolean = true) {
-        if (items.isEmpty()) {
+    fun isIndicatorVisible(): Boolean {
+        return indicatorVisible
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        if (indicatorVisible && getItemCount() > 1) {
+            drawIndicator(canvas)
+        }
+    }
+
+    /**
+     * 绘制内部 Indicator。
+     *
+     * 注意：
+     *
+     * Indicator 使用 currentItem。
+     *
+     * 例如真实数据：
+     *
+     * 0 1 2
+     *
+     * 虚拟页面：
+     *
+     * 2 0 1 2 0
+     *
+     * 即使当前滚动到了虚拟的 0 或 4，
+     * Indicator 仍然只显示：
+     *
+     * 0 1 2
+     *
+     * 不会出现 5 个圆点。
+     */
+    private fun drawIndicator(canvas: Canvas) {
+        val count = getItemCount()
+        if (count <= 1) {
             return
         }
-        val target = index.coerceIn(0, items.lastIndex)
-        currentItem = target
-        currentPage = if (loopEnabled && items.size > 1) {
-            target + 1
-        } else {
-            target
+        val totalWidth = count * indicatorRadius * 2 + (count - 1) * indicatorSpace
+        var startX = (width - totalWidth) / 2f
+        val centerY = height - indicatorBottomMargin - indicatorRadius
+        for (position in 0 until count) {
+            indicatorPaint.color =
+                if (position == currentItem) {
+                    indicatorSelectedColor
+                } else {
+                    indicatorNormalColor
+                }
+            canvas.drawCircle(startX + indicatorRadius, centerY, indicatorRadius,
+                indicatorPaint
+            )
+            startX += indicatorRadius * 2 + indicatorSpace
         }
-        if (smoothScroll) {
-            smoothScrollToPage(currentPage)
+    }
+
+    // -------------------------------------------------------------------------
+    // Page Change Listener
+    // -------------------------------------------------------------------------
+
+    /**
+     * 添加页面变化监听。
+     */
+    fun addOnPageChangeListener(listener: OnPageChangeListener) {
+        if (!pageChangeListeners.contains(listener)) {
+            pageChangeListeners.add(listener)
+        }
+    }
+
+    /**
+     * 移除页面变化监听。
+     */
+    fun removeOnPageChangeListener(listener: OnPageChangeListener) {
+        pageChangeListeners.remove(listener)
+    }
+
+    /**
+     * 移除全部页面变化监听。
+     */
+    fun removeAllOnPageChangeListeners() {
+        pageChangeListeners.clear()
+    }
+
+    /**
+     * 页面滚动回调。
+     */
+    private fun dispatchPageScrolled() {
+        if (width <= 0 || childCount <= 0) {
+            return
+        }
+        val scrollXValue = scrollX
+        val page = (scrollXValue / width)
+                .coerceIn(
+                    0,
+                    childCount - 1
+                )
+        val positionOffsetPixels = scrollXValue - page * width
+        val positionOffset =
+            if (width > 0) {
+                positionOffsetPixels
+                    .toFloat() /
+                        width.toFloat()
+            } else {
+                0f
+            }
+        val actualPosition = getActualPosition(page)
+
+        /*
+         * 首尾虚拟页面需要特殊处理。
+         *
+         * 真实：
+         * 0 1 2
+         *
+         * 虚拟：
+         * 2 0 1 2 0
+         *
+         * 对外：
+         * 0 1 2
+         *
+         * 而不是：
+         * 2 0 1 2 0
+         */
+        val listeners = pageChangeListeners.toList()
+        listeners.forEach {
+            it.onPageScrolled(
+                actualPosition,
+                positionOffset,
+                positionOffsetPixels
+            )
+        }
+    }
+
+    /**
+     * 获取真实数据位置。
+     */
+    private fun getActualPosition(page: Int): Int {
+        val count = getItemCount()
+        if (count <= 0) {
+            return 0
+        }
+        if (!loopEnabled || count <= 1) {
+            return page.coerceIn(
+                0,
+                count - 1
+            )
+        }
+        return when (page) {
+            0 -> {
+                count - 1
+            }
+            childCount - 1 -> {
+                0
+            }
+            else -> {
+                page - 1
+            }
+        }
+    }
+
+    /**
+     * 页面选中回调。
+     */
+    private fun dispatchPageSelected() {
+        val listeners = pageChangeListeners.toList()
+        listeners.forEach {
+            it.onPageSelected(currentItem)
+        }
+    }
+
+    /**
+     * 页面滚动状态回调。
+     */
+    private fun dispatchScrollStateChanged(state: Int) {
+        if (scrollState == state) {
+            return
+        }
+        scrollState = state
+        val listeners = pageChangeListeners.toList()
+        listeners.forEach {
+            it.onPageScrollStateChanged(state)
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Touch
+    // -------------------------------------------------------------------------
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (getItemCount() <= 1) {
+            return super.onTouchEvent(event)
+        }
+        ensureVelocityTracker()
+        velocityTracker?.addMovement(event)
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                stopAutoPlay()
+                scroller.abortAnimation()
+                downX = event.x
+                downY = event.y
+                lastX = event.x
+                dragging = false
+                moved = false
+                parent?.requestDisallowInterceptTouchEvent(true)
+                dispatchScrollStateChanged(SCROLL_STATE_DRAGGING)
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dx = event.x - lastX
+                val totalDx = event.x - downX
+                val totalDy = event.y - downY
+                if (!dragging) {
+                    if (abs(totalDx) > touchSlop && abs(totalDx) > abs(totalDy)) {
+                        dragging = true
+                        moved = true
+                    }
+                }
+                if (dragging) {
+                    scrollBy((-dx).toInt(), 0)
+                    limitScrollRange()
+                    dispatchPageScrolled()
+                }
+                lastX = event.x
+                return true
+            }
+            MotionEvent.ACTION_UP -> {
+                if (dragging) {
+                    handleRelease()
+                } else {
+                    dispatchScrollStateChanged(SCROLL_STATE_IDLE)
+                    startAutoPlay()
+                }
+                recycleVelocityTracker()
+                parent?.requestDisallowInterceptTouchEvent(false)
+                performClick()
+                return true
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                if (dragging) {
+                    settleToNearestPage()
+                } else {
+                    dispatchScrollStateChanged(SCROLL_STATE_IDLE)
+                }
+                recycleVelocityTracker()
+                parent?.requestDisallowInterceptTouchEvent(false)
+                return true
+            }
+        }
+        return true
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
+    }
+
+    /**
+     * 手指释放。
+     */
+    private fun handleRelease() {
+        velocityTracker?.computeCurrentVelocity(1000, maximumVelocity.toFloat())
+        val velocityX = velocityTracker?.xVelocity ?: 0f
+        val pageWidth = width
+        if (pageWidth <= 0) {
+            return
+        }
+        val currentScroll = scrollX
+        val currentPageFloat = currentScroll.toFloat() / pageWidth
+        var targetPage = currentPageFloat.toInt()
+        val offset = currentPageFloat - targetPage
+        if (abs(velocityX) >= minimumVelocity) {
+            targetPage =
+                if (velocityX < 0) {
+                    targetPage + 1
+                } else {
+                    targetPage
+                }
         } else {
-            scrollTo(currentPage * width, 0)
-            notifyPageChanged()
+            if (offset >= 0.5f) {
+                targetPage++
+            }
+        }
+        targetPage =
+            targetPage.coerceIn(
+                0,
+                childCount - 1
+            )
+        dispatchScrollStateChanged(SCROLL_STATE_SETTLING)
+        smoothScrollToPage(targetPage)
+    }
+
+    /**
+     * 回到最近页面。
+     */
+    private fun settleToNearestPage() {
+        if (width <= 0) {
+            return
+        }
+        val targetPage = (scrollX.toFloat() / width + 0.5f).toInt()
+                .coerceIn(0, childCount - 1)
+        dispatchScrollStateChanged(SCROLL_STATE_SETTLING)
+        smoothScrollToPage(targetPage)
+    }
+
+    // -------------------------------------------------------------------------
+    // Scroll
+    // -------------------------------------------------------------------------
+
+    /**
+     * 平滑滚动到页面。
+     */
+    private fun smoothScrollToPage(page: Int) {
+        if (width <= 0 || childCount <= 0) {
+            return
+        }
+        val targetPage = page.coerceIn(0, childCount - 1)
+        val targetX = targetPage * width
+        val dx = targetX - scrollX
+        if (dx == 0) {
+            finishScroll(targetPage)
+            return
+        }
+        scroller.startScroll(
+            scrollX,
+            0,
+            dx,
+            0,
+            scrollDuration.toInt()
+        )
+        invalidate()
+    }
+
+    /**
+     * 限制滚动范围。
+     */
+    private fun limitScrollRange() {
+        val maxScroll = max(0, (childCount - 1) * width)
+        if (scrollX < 0) {
+            scrollTo(0, 0)
+        } else if (scrollX > maxScroll) {
+            scrollTo(maxScroll, 0)
+        }
+    }
+
+    override fun computeScroll() {
+        if (scroller.computeScrollOffset()) {
+            scrollTo(scroller.currX, scroller.currY)
+            dispatchPageScrolled()
             invalidate()
-        }
-    }
-
-    /**
-     * 获取当前页面。
-     *
-     * @return 当前页面下标。
-     */
-    fun getCurrentItem(): Int {
-        return currentItem
-    }
-
-    /**
-     * 获取 Banner 数量。
-     *
-     * @return Banner 数量。
-     */
-    fun getItemCount(): Int {
-        return items.size
-    }
-
-    /**
-     * 开始自动轮播。
-     */
-    fun startAutoPlay() {
-        if (!isAttachedToWindow) {
             return
         }
-        if (!isAutoPlayEnabled || items.size <= 1) {
+        if (isNotEmpty() && width > 0) {
+            val page = (scrollX.toFloat() / width).toInt()
+            if (scrollX == page * width) {
+                finishScroll(page)
+            }
+        }
+    }
+
+    /**
+     * 完成一次页面滚动。
+     */
+    private fun finishScroll(page: Int) {
+        val count = getItemCount()
+        if (count <= 0) {
             return
         }
-        removeCallbacks(autoPlayRunnable)
-        postDelayed(autoPlayRunnable, autoPlayInterval)
-    }
-
-    /**
-     * 停止自动轮播。
-     */
-    fun stopAutoPlay() {
-        removeCallbacks(autoPlayRunnable)
-    }
-
-    /**
-     * 设置 Banner 点击监听。
-     *
-     * @param listener 点击监听器。
-     */
-    fun setOnBannerClickListener(listener: OnBannerClickListener) {
-        onBannerClickListener = listener
-    }
-
-    /**
-     * 设置页面切换监听。
-     *
-     * @param listener 页面切换监听器。
-     */
-    fun setOnPageChangedListener(listener: OnPageChangedListener) {
-        onPageChangedListener = listener
-    }
-
-    /**
-     * 重新构建 Banner 页面。
-     */
-    private fun rebuildViews() {
-        stopAutoPlay()
-        removeAllViews()
-        if (items.isEmpty()) {
-            currentItem = 0
-            currentPage = 0
-            invalidate()
-            return
-        }
-        if (loopEnabled && items.size > 1) {
-            addBannerView(items.lastIndex)
-        }
-        items.forEachIndexed { index, _ ->
-            addBannerView(index)
-        }
-        if (loopEnabled && items.size > 1) {
-            addBannerView(0)
-            currentPage = currentItem + 1
-        } else {
-            currentPage = currentItem
-        }
-        requestLayout()
-        post {
-            scrollTo(currentPage * width, 0)
-            startAutoPlay()
-        }
-    }
-
-    /**
-     * 添加指定 Banner 页面。
-     */
-    private fun addBannerView(index: Int) {
-        val child = when (val item = items[index]) {
-            is BannerItem.DrawableItem -> {
-                ImageView(context).apply {
-                    scaleType = ImageView.ScaleType.CENTER_CROP
-                    setImageDrawable(item.drawable)
+        if (loopEnabled && count > 1) {
+            when (page) {
+                /*
+                 * 滚动到了最前面的虚拟页面。
+                 *
+                 * 虚拟：
+                 * 2 | 0 | 1 | 2 | 0
+                 *
+                 * 当前页面：
+                 * 2
+                 *
+                 * 瞬间跳到真实页面：
+                 * 2
+                 */
+                0 -> {
+                    currentItem = count - 1
+                    currentPage = count
+                    scrollTo(currentPage * width, 0)
+                    dispatchPageSelected()
+                }
+                /*
+                 * 滚动到了最后面的虚拟页面。
+                 *
+                 * 虚拟：
+                 * 2 | 0 | 1 | 2 | 0
+                 *
+                 * 当前页面：
+                 * 0
+                 *
+                 * 瞬间跳到真实页面：
+                 * 0
+                 */
+                childCount - 1 -> {
+                    currentItem = 0
+                    currentPage = 1
+                    scrollTo(currentPage * width, 0)
+                    dispatchPageSelected()
+                }
+                else -> {
+                    val newItem = page - 1
+                    if (newItem != currentItem) {
+                        currentItem = newItem
+                        currentPage = page
+                        dispatchPageSelected()
+                    }
                 }
             }
-            is BannerItem.ViewItem -> {
-                item.view
+        } else {
+            val newItem = page.coerceIn(0, count - 1)
+            if (newItem != currentItem) {
+                currentItem = newItem
+                currentPage = newItem
+                dispatchPageSelected()
             }
         }
-        child.setOnClickListener {
-            if (!moved) {
-                onBannerClickListener?.onBannerClick(this, currentItem)
-            }
-        }
-        addView(child)
+        dispatchPageScrolled()
+        dispatchScrollStateChanged(SCROLL_STATE_IDLE)
+        invalidate()
+        startAutoPlay()
     }
 
-    override fun onMeasure(
-        widthMeasureSpec: Int,
-        heightMeasureSpec: Int
-    ) {
+    // -------------------------------------------------------------------------
+    // Measure / Layout
+    // -------------------------------------------------------------------------
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = resolveSize(suggestedMinimumWidth, widthMeasureSpec)
         val height = resolveBannerHeight(heightMeasureSpec)
         setMeasuredDimension(width, height)
-        val childWidthSpec = MeasureSpec.makeMeasureSpec(
-            width,
-            MeasureSpec.EXACTLY
-        )
-        val childHeightSpec = MeasureSpec.makeMeasureSpec(
-            height,
-            MeasureSpec.EXACTLY
-        )
+        val childWidthSpec = MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY)
+        val childHeightSpec = MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY)
         for (i in 0 until childCount) {
-            getChildAt(i).measure(
-                childWidthSpec,
-                childHeightSpec
-            )
+            getChildAt(i).measure(childWidthSpec,
+                childHeightSpec)
         }
     }
 
     /**
      * 计算 Banner 高度。
      */
-    private fun resolveBannerHeight(
-        heightMeasureSpec: Int
-    ): Int {
+    private fun resolveBannerHeight(heightMeasureSpec: Int): Int {
         return when (MeasureSpec.getMode(heightMeasureSpec)) {
             MeasureSpec.EXACTLY -> {
                 MeasureSpec.getSize(heightMeasureSpec)
@@ -621,257 +1172,20 @@ class DoraBannerView @JvmOverloads constructor(
         }
     }
 
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
-        if (indicatorVisible && items.size > 1) {
-            drawIndicator(canvas)
-        }
-    }
+    // -------------------------------------------------------------------------
+    // Click
+    // -------------------------------------------------------------------------
 
     /**
-     * 绘制页面指示器。
+     * 设置 Banner 点击监听。
      */
-    private fun drawIndicator(canvas: Canvas) {
-        val count = items.size
-        val totalWidth = count * indicatorRadius * 2 + (count - 1) * indicatorSpace
-        var startX = (width - totalWidth) / 2f
-        val centerY = height - indicatorBottomMargin - indicatorRadius
-        for (i in 0 until count) {
-            indicatorPaint.color =
-                if (i == currentItem) {
-                    indicatorSelectedColor
-                } else {
-                    indicatorNormalColor
-                }
-            canvas.drawCircle(
-                startX + indicatorRadius,
-                centerY,
-                indicatorRadius,
-                indicatorPaint
-            )
-            startX += indicatorRadius * 2 + indicatorSpace
-        }
+    fun setOnBannerClickListener(listener: OnBannerClickListener) {
+        onBannerClickListener = listener
     }
 
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (items.size <= 1) {
-            return super.onTouchEvent(event)
-        }
-        ensureVelocityTracker()
-        velocityTracker?.addMovement(event)
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                stopAutoPlay()
-                scroller.abortAnimation()
-                downX = event.x
-                downY = event.y
-                lastX = event.x
-                dragging = false
-                moved = false
-                parent?.requestDisallowInterceptTouchEvent(true)
-                return true
-            }
-
-            MotionEvent.ACTION_MOVE -> {
-                val dx = event.x - lastX
-                val totalDx = event.x - downX
-                val totalDy = event.y - downY
-                if (!dragging) {
-                    if (abs(totalDx) > touchSlop && abs(totalDx) > abs(totalDy)) {
-                        dragging = true
-                        moved = true
-                    }
-                }
-                if (dragging) {
-                    scrollBy((-dx).toInt(), 0)
-                    limitScrollRange()
-                }
-                lastX = event.x
-                return true
-            }
-
-            MotionEvent.ACTION_UP -> {
-                if (dragging) {
-                    handleRelease()
-                } else {
-                    startAutoPlay()
-                }
-                recycleVelocityTracker()
-                parent?.requestDisallowInterceptTouchEvent(false)
-                performClick()
-                return true
-            }
-
-            MotionEvent.ACTION_CANCEL -> {
-                if (dragging) {
-                    settleToNearestPage()
-                }
-                recycleVelocityTracker()
-                parent?.requestDisallowInterceptTouchEvent(false)
-                return true
-            }
-        }
-        return true
-    }
-
-    override fun performClick(): Boolean {
-        super.performClick()
-        return true
-    }
-
-    /**
-     * 处理手指释放。
-     */
-    private fun handleRelease() {
-        velocityTracker?.computeCurrentVelocity(
-            1000,
-            maximumVelocity.toFloat()
-        )
-        val velocityX = velocityTracker?.xVelocity ?: 0f
-        val currentScroll = scrollX
-        val pageWidth = width
-        if (pageWidth <= 0) {
-            return
-        }
-        val currentPageFloat = currentScroll.toFloat() / pageWidth
-        var targetPage = currentPageFloat.toInt()
-        val offset = currentPageFloat - targetPage
-        if (abs(velocityX) >= minimumVelocity) {
-            targetPage = if (velocityX < 0) {
-                targetPage + 1
-            } else {
-                targetPage
-            }
-        } else {
-            if (offset >= 0.5f) {
-                targetPage++
-            }
-        }
-        targetPage = targetPage.coerceIn(
-            0,
-            childCount - 1
-        )
-        smoothScrollToPage(targetPage)
-    }
-
-    /**
-     * 回到最近页面。
-     */
-    private fun settleToNearestPage() {
-        if (width <= 0) {
-            return
-        }
-        val targetPage = ((scrollX.toFloat() / width) + 0.5f).toInt().coerceIn(0, childCount - 1)
-        smoothScrollToPage(targetPage)
-    }
-
-    /**
-     * 平滑滚动到指定页面。
-     */
-    private fun smoothScrollToPage(page: Int) {
-        if (width <= 0 || isEmpty()) {
-            return
-        }
-        val targetPage = page.coerceIn(0, childCount - 1)
-        val targetX = targetPage * width
-        val dx = targetX - scrollX
-        if (dx == 0) {
-            finishScroll(targetPage)
-            return
-        }
-        scroller.startScroll(
-            scrollX,
-            0,
-            dx,
-            0,
-            scrollDuration.toInt()
-        )
-        invalidate()
-    }
-
-    /**
-     * 限制手势滚动范围。
-     */
-    private fun limitScrollRange() {
-        val maxScroll = max(0, (childCount - 1) * width)
-        if (scrollX < 0) {
-            scrollTo(0, 0)
-        } else if (scrollX > maxScroll) {
-            scrollTo(maxScroll, 0)
-        }
-    }
-
-    override fun computeScroll() {
-        if (scroller.computeScrollOffset()) {
-            scrollTo(scroller.currX, scroller.currY)
-            invalidate()
-            return
-        }
-        if (isNotEmpty() && width > 0) {
-            val page = (scrollX.toFloat() / width).toInt()
-            if (scrollX == page * width) {
-                finishScroll(page)
-            }
-        }
-    }
-
-    /**
-     * 完成一次页面滚动。
-     */
-    private fun finishScroll(page: Int) {
-        if (items.isEmpty()) {
-            return
-        }
-        if (loopEnabled && items.size > 1) {
-            when (page) {
-                0 -> {
-                    currentItem = items.lastIndex
-                    currentPage = items.size
-                    scrollTo(
-                        currentPage * width,
-                        0
-                    )
-                    notifyPageChanged()
-                }
-                childCount - 1 -> {
-                    currentItem = 0
-                    currentPage = 1
-                    scrollTo(
-                        currentPage * width,
-                        0
-                    )
-                    notifyPageChanged()
-                }
-                else -> {
-                    val newItem = page - 1
-                    if (newItem != currentItem) {
-                        currentItem = newItem
-                        currentPage = page
-                        notifyPageChanged()
-                    }
-                }
-            }
-        } else {
-            val newItem = page.coerceIn(0, items.lastIndex)
-            if (newItem != currentItem) {
-                currentItem = newItem
-                currentPage = newItem
-                notifyPageChanged()
-            }
-        }
-        invalidate()
-        startAutoPlay()
-    }
-
-    /**
-     * 通知页面发生变化。
-     */
-    private fun notifyPageChanged() {
-        onPageChangedListener?.onPageChanged(
-            this,
-            currentItem
-        )
-    }
+    // -------------------------------------------------------------------------
+    // Lifecycle
+    // -------------------------------------------------------------------------
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -883,6 +1197,10 @@ class DoraBannerView @JvmOverloads constructor(
         recycleVelocityTracker()
         super.onDetachedFromWindow()
     }
+
+    // -------------------------------------------------------------------------
+    // State
+    // -------------------------------------------------------------------------
 
     override fun onSaveInstanceState(): Parcelable {
         val bundle = Bundle()
@@ -899,36 +1217,49 @@ class DoraBannerView @JvmOverloads constructor(
 
     override fun onRestoreInstanceState(state: Parcelable?) {
         if (state is Bundle) {
-            currentItem = state.getInt(
-                KEY_CURRENT_ITEM,
-                0
-            )
-            val superState =
-                state.getParcelable<Parcelable>(
-                    KEY_SUPER_STATE
-                )
+            currentItem = state.getInt(KEY_CURRENT_ITEM, 0)
+            val superState = state.getParcelable<Parcelable>(KEY_SUPER_STATE)
             super.onRestoreInstanceState(superState)
+            post {
+                val count = getItemCount()
+                if (count > 0) {
+                    currentItem = currentItem.coerceIn(0, count - 1)
+                    currentPage =
+                        if (loopEnabled && count > 1) {
+                            currentItem + 1
+                        } else {
+                            currentItem
+                        }
+                    if (width > 0) {
+                        scrollTo(currentPage * width, 0)
+                    }
+                    dispatchPageSelected()
+                    dispatchPageScrolled()
+                }
+            }
             return
         }
         super.onRestoreInstanceState(state)
     }
 
-    /**
-     * 创建速度追踪器。
-     */
+    // -------------------------------------------------------------------------
+    // Velocity Tracker
+    // -------------------------------------------------------------------------
+
     private fun ensureVelocityTracker() {
         if (velocityTracker == null) {
             velocityTracker = VelocityTracker.obtain()
         }
     }
 
-    /**
-     * 回收速度追踪器。
-     */
     private fun recycleVelocityTracker() {
         velocityTracker?.recycle()
         velocityTracker = null
     }
+
+    // -------------------------------------------------------------------------
+    // Utils
+    // -------------------------------------------------------------------------
 
     /**
      * dp 转 px。
@@ -942,57 +1273,69 @@ class DoraBannerView @JvmOverloads constructor(
     }
 
     /**
-     * Banner 数据项。
-     */
-    private sealed class BannerItem {
-
-        /**
-         * Drawable 类型 Banner。
-         */
-        class DrawableItem(
-            val drawable: Drawable
-        ) : BannerItem()
-
-        /**
-         * 自定义 View 类型 Banner。
-         */
-        class ViewItem(
-            val view: View
-        ) : BannerItem()
-    }
-
-    /**
-     * Banner 点击监听器。
+     * Banner 点击监听。
      */
     interface OnBannerClickListener {
 
-        /**
-         * Banner 点击回调。
-         *
-         * @param view Banner 控件。
-         * @param position 当前 Banner 下标。
-         */
         fun onBannerClick(view: DoraBannerView, position: Int)
     }
 
     /**
-     * Banner 页面变化监听器。
+     * Banner 页面变化监听。
+     *
+     * API 设计与 ViewPager2 的
+     * OnPageChangeCallback 保持一致。
      */
-    interface OnPageChangedListener {
+    interface OnPageChangeListener {
 
         /**
-         * 页面变化回调。
+         * 页面滚动。
          *
-         * @param view Banner 控件。
-         * @param position 当前 Banner 下标。
+         * position：
+         * 真实数据位置。
+         *
+         * positionOffset：
+         * 当前页面偏移比例，0 ~ 1。
+         *
+         * positionOffsetPixels：
+         * 当前页面偏移像素。
          */
-        fun onPageChanged(
-            view: DoraBannerView,
-            position: Int
-        )
+        fun onPageScrolled(position: Int, positionOffset: Float, positionOffsetPixels: Int)
+
+        /**
+         * 页面选中。
+         */
+        fun onPageSelected(position: Int)
+
+        /**
+         * 页面滚动状态变化。
+         */
+        fun onPageScrollStateChanged(state: Int)
     }
 
+    /**
+     * Drawable Adapter 内部标记。
+     *
+     * 用于兼容 addBanner(Drawable)。
+     */
+    private interface SimpleDrawableAdapter
+
     companion object {
+
+        /**
+         * 当前没有滚动。
+         */
+        const val SCROLL_STATE_IDLE = 0
+
+        /**
+         * 用户正在拖动。
+         */
+        const val SCROLL_STATE_DRAGGING = 1
+
+        /**
+         * 正在自动 / 手动滚动。
+         */
+        const val SCROLL_STATE_SETTLING = 2
 
         /**
          * 默认自动播放间隔。
@@ -1000,7 +1343,7 @@ class DoraBannerView @JvmOverloads constructor(
         private const val DEFAULT_INTERVAL = 3000L
 
         /**
-         * 默认滑动动画持续时间。
+         * 默认滑动动画时间。
          */
         private const val DEFAULT_DURATION = 300L
 
@@ -1010,15 +1353,13 @@ class DoraBannerView @JvmOverloads constructor(
         private const val MIN_INTERVAL = 500L
 
         /**
-         * 状态保存 Key。
+         * Super State。
          */
-        private const val KEY_SUPER_STATE =
-            "super_state"
+        private const val KEY_SUPER_STATE = "super_state"
 
         /**
-         * 当前页面状态 Key。
+         * 当前页面。
          */
-        private const val KEY_CURRENT_ITEM =
-            "current_item"
+        private const val KEY_CURRENT_ITEM = "current_item"
     }
 }

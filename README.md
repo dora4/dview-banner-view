@@ -12,7 +12,7 @@ allprojects {
 }
 // 添加以下代码到app模块的build.gradle
 dependencies {
-    implementation 'com.github.dora4:dview-banner-view:1.1'
+    implementation 'com.github.dora4:dview-banner-view:1.2'
 }
 ```
 
@@ -36,11 +36,16 @@ dependencies {
 ```
 ```kotlin
 binding.bannerView.apply {
+    // 设置静态资源图片
     setItems(
         R.drawable.banner_1,
         R.drawable.banner_2,
         R.drawable.banner_3
     )
+    // 或设置视图列表（不推荐）
+    setViews(view1, view2, view3)
+    // 或使用适配器（推荐）
+    setBannerAdapter(imageAdapter)
     setOnBannerClickListener { _, position ->
         when (position) {
             0 -> {
@@ -54,8 +59,24 @@ binding.bannerView.apply {
             }
         }
     }
-    setOnPageChangedListener { _, position ->
-        // 页面切换
-    }
+    // 如果使用了外部指示器
+    addOnPageChangeListener(object : OnPageChangeListener {
+        override fun onPageScrolled(
+            position: Int,
+            positionOffset: Float,
+            positionOffsetPixels: Int
+        ) {
+            binding.indicator.pageChangeCallback.onPageScrolled(position, positionOffset,
+                positionOffsetPixels)
+        }
+
+        override fun onPageSelected(position: Int) {
+            binding.indicator.pageChangeCallback.onPageSelected(position)
+        }
+
+        override fun onPageScrollStateChanged(state: Int) {
+            binding.indicator.pageChangeCallback.onPageScrollStateChanged(state)
+        }
+    })
 }
 ```
