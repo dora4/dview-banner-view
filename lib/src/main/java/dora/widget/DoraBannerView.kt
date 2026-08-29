@@ -21,6 +21,9 @@ import androidx.core.content.ContextCompat
 import dora.widget.banner.R
 import kotlin.math.abs
 import kotlin.math.max
+import androidx.core.content.withStyledAttributes
+import androidx.core.view.isNotEmpty
+import androidx.core.view.isEmpty
 
 /**
  * 横幅轮播控件。
@@ -101,7 +104,7 @@ class DoraBannerView @JvmOverloads constructor(
     /**
      * 是否显示指示器。
      */
-    private var indicatorVisible = true
+    private var indicatorVisible = false
 
     /**
      * 指示器圆点半径。
@@ -136,10 +139,7 @@ class DoraBannerView @JvmOverloads constructor(
     /**
      * 页面滚动器。
      */
-    private val scroller = Scroller(
-        context,
-        DecelerateInterpolator()
-    )
+    private val scroller = Scroller(context, DecelerateInterpolator())
 
     /**
      * 最小滑动距离。
@@ -198,65 +198,53 @@ class DoraBannerView @JvmOverloads constructor(
 
     init {
         setWillNotDraw(false)
-
-        val typedArray = context.obtainStyledAttributes(
+        context.withStyledAttributes(
             attrs,
             R.styleable.DoraBannerView,
             defStyleAttr,
             0
-        )
-
-        isAutoPlayEnabled = typedArray.getBoolean(
-            R.styleable.DoraBannerView_dview_bv_autoPlay,
-            true
-        )
-
-        autoPlayInterval = typedArray.getInt(
-            R.styleable.DoraBannerView_dview_bv_interval,
-            DEFAULT_INTERVAL.toInt()
-        ).coerceAtLeast(MIN_INTERVAL.toInt()).toLong()
-
-        scrollDuration = typedArray.getInt(
-            R.styleable.DoraBannerView_dview_bv_duration,
-            DEFAULT_DURATION.toInt()
-        ).coerceAtLeast(0).toLong()
-
-        loopEnabled = typedArray.getBoolean(
-            R.styleable.DoraBannerView_dview_bv_loop,
-            true
-        )
-
-        indicatorVisible = typedArray.getBoolean(
-            R.styleable.DoraBannerView_dview_bv_indicatorVisible,
-            true
-        )
-
-        indicatorRadius = typedArray.getDimension(
-            R.styleable.DoraBannerView_dview_bv_indicatorRadius,
-            indicatorRadius
-        )
-
-        indicatorSpace = typedArray.getDimension(
-            R.styleable.DoraBannerView_dview_bv_indicatorSpace,
-            indicatorSpace
-        )
-
-        indicatorBottomMargin = typedArray.getDimensionPixelSize(
-            R.styleable.DoraBannerView_dview_bv_indicatorBottomMargin,
-            indicatorBottomMargin
-        )
-
-        indicatorNormalColor = typedArray.getColor(
-            R.styleable.DoraBannerView_dview_bv_indicatorNormalColor,
-            indicatorNormalColor
-        )
-
-        indicatorSelectedColor = typedArray.getColor(
-            R.styleable.DoraBannerView_dview_bv_indicatorSelectedColor,
-            indicatorSelectedColor
-        )
-
-        typedArray.recycle()
+        ) {
+            isAutoPlayEnabled = getBoolean(
+                R.styleable.DoraBannerView_dview_bv_autoPlay,
+                true
+            )
+            autoPlayInterval = getInt(
+                R.styleable.DoraBannerView_dview_bv_interval,
+                DEFAULT_INTERVAL.toInt()
+            ).coerceAtLeast(MIN_INTERVAL.toInt()).toLong()
+            scrollDuration = getInt(
+                R.styleable.DoraBannerView_dview_bv_duration,
+                DEFAULT_DURATION.toInt()
+            ).coerceAtLeast(0).toLong()
+            loopEnabled = getBoolean(
+                R.styleable.DoraBannerView_dview_bv_loop,
+                true
+            )
+            indicatorVisible = getBoolean(
+                R.styleable.DoraBannerView_dview_bv_indicatorVisible,
+                false
+            )
+            indicatorRadius = getDimension(
+                R.styleable.DoraBannerView_dview_bv_indicatorRadius,
+                indicatorRadius
+            )
+            indicatorSpace = getDimension(
+                R.styleable.DoraBannerView_dview_bv_indicatorSpace,
+                indicatorSpace
+            )
+            indicatorBottomMargin = getDimensionPixelSize(
+                R.styleable.DoraBannerView_dview_bv_indicatorBottomMargin,
+                indicatorBottomMargin
+            )
+            indicatorNormalColor = getColor(
+                R.styleable.DoraBannerView_dview_bv_indicatorNormalColor,
+                indicatorNormalColor
+            )
+            indicatorSelectedColor = getColor(
+                R.styleable.DoraBannerView_dview_bv_indicatorSelectedColor,
+                indicatorSelectedColor
+            )
+        }
     }
 
     /**
@@ -276,11 +264,9 @@ class DoraBannerView @JvmOverloads constructor(
     fun setItems(drawables: List<Drawable>) {
         removeAllViews()
         items.clear()
-
         drawables.forEach {
             items.add(BannerItem.DrawableItem(it))
         }
-
         rebuildViews()
     }
 
@@ -319,11 +305,9 @@ class DoraBannerView @JvmOverloads constructor(
     fun setViews(views: List<View>) {
         removeAllViews()
         items.clear()
-
         views.forEach {
             items.add(BannerItem.ViewItem(it))
         }
-
         rebuildViews()
     }
 
@@ -343,9 +327,7 @@ class DoraBannerView @JvmOverloads constructor(
      * @param drawableResId Drawable 资源 ID。
      */
     fun addBanner(@DrawableRes drawableResId: Int) {
-        val drawable = ContextCompat.getDrawable(context, drawableResId)
-            ?: return
-
+        val drawable = ContextCompat.getDrawable(context, drawableResId) ?: return
         addBanner(drawable)
     }
 
@@ -379,7 +361,6 @@ class DoraBannerView @JvmOverloads constructor(
      */
     fun setAutoPlay(enabled: Boolean) {
         isAutoPlayEnabled = enabled
-
         if (enabled) {
             startAutoPlay()
         } else {
@@ -396,7 +377,6 @@ class DoraBannerView @JvmOverloads constructor(
      */
     fun setAutoPlayInterval(interval: Long) {
         autoPlayInterval = interval.coerceAtLeast(MIN_INTERVAL)
-
         if (isAutoPlayEnabled) {
             stopAutoPlay()
             startAutoPlay()
@@ -421,7 +401,6 @@ class DoraBannerView @JvmOverloads constructor(
      */
     fun setLoopEnabled(enabled: Boolean) {
         loopEnabled = enabled
-
         if (!enabled) {
             currentPage = currentItem
             requestLayout()
@@ -446,24 +425,17 @@ class DoraBannerView @JvmOverloads constructor(
      * @param index 页面下标，从 0 开始。
      * @param smoothScroll 是否使用动画。
      */
-    fun setCurrentItem(
-        index: Int,
-        smoothScroll: Boolean = true
-    ) {
+    fun setCurrentItem(index: Int, smoothScroll: Boolean = true) {
         if (items.isEmpty()) {
             return
         }
-
         val target = index.coerceIn(0, items.lastIndex)
-
         currentItem = target
-
-        if (loopEnabled && items.size > 1) {
-            currentPage = target + 1
+        currentPage = if (loopEnabled && items.size > 1) {
+            target + 1
         } else {
-            currentPage = target
+            target
         }
-
         if (smoothScroll) {
             smoothScrollToPage(currentPage)
         } else {
@@ -498,11 +470,9 @@ class DoraBannerView @JvmOverloads constructor(
         if (!isAttachedToWindow) {
             return
         }
-
         if (!isAutoPlayEnabled || items.size <= 1) {
             return
         }
-
         removeCallbacks(autoPlayRunnable)
         postDelayed(autoPlayRunnable, autoPlayInterval)
     }
@@ -519,9 +489,7 @@ class DoraBannerView @JvmOverloads constructor(
      *
      * @param listener 点击监听器。
      */
-    fun setOnBannerClickListener(
-        listener: OnBannerClickListener?
-    ) {
+    fun setOnBannerClickListener(listener: OnBannerClickListener) {
         onBannerClickListener = listener
     }
 
@@ -530,9 +498,7 @@ class DoraBannerView @JvmOverloads constructor(
      *
      * @param listener 页面切换监听器。
      */
-    fun setOnPageChangedListener(
-        listener: OnPageChangedListener?
-    ) {
+    fun setOnPageChangedListener(listener: OnPageChangedListener) {
         onPageChangedListener = listener
     }
 
@@ -542,31 +508,25 @@ class DoraBannerView @JvmOverloads constructor(
     private fun rebuildViews() {
         stopAutoPlay()
         removeAllViews()
-
         if (items.isEmpty()) {
             currentItem = 0
             currentPage = 0
             invalidate()
             return
         }
-
         if (loopEnabled && items.size > 1) {
             addBannerView(items.lastIndex)
         }
-
         items.forEachIndexed { index, _ ->
             addBannerView(index)
         }
-
         if (loopEnabled && items.size > 1) {
             addBannerView(0)
             currentPage = currentItem + 1
         } else {
             currentPage = currentItem
         }
-
         requestLayout()
-
         post {
             scrollTo(currentPage * width, 0)
             startAutoPlay()
@@ -577,30 +537,22 @@ class DoraBannerView @JvmOverloads constructor(
      * 添加指定 Banner 页面。
      */
     private fun addBannerView(index: Int) {
-        val item = items[index]
-
-        val child = when (item) {
+        val child = when (val item = items[index]) {
             is BannerItem.DrawableItem -> {
                 ImageView(context).apply {
                     scaleType = ImageView.ScaleType.CENTER_CROP
                     setImageDrawable(item.drawable)
                 }
             }
-
             is BannerItem.ViewItem -> {
                 item.view
             }
         }
-
         child.setOnClickListener {
             if (!moved) {
-                onBannerClickListener?.onBannerClick(
-                    this,
-                    currentItem
-                )
+                onBannerClickListener?.onBannerClick(this, currentItem)
             }
         }
-
         addView(child)
     }
 
@@ -608,25 +560,17 @@ class DoraBannerView @JvmOverloads constructor(
         widthMeasureSpec: Int,
         heightMeasureSpec: Int
     ) {
-        val width = resolveSize(
-            suggestedMinimumWidth,
-            widthMeasureSpec
-        )
-
+        val width = resolveSize(suggestedMinimumWidth, widthMeasureSpec)
         val height = resolveBannerHeight(heightMeasureSpec)
-
         setMeasuredDimension(width, height)
-
         val childWidthSpec = MeasureSpec.makeMeasureSpec(
             width,
             MeasureSpec.EXACTLY
         )
-
         val childHeightSpec = MeasureSpec.makeMeasureSpec(
             height,
             MeasureSpec.EXACTLY
         )
-
         for (i in 0 until childCount) {
             getChildAt(i).measure(
                 childWidthSpec,
@@ -645,11 +589,9 @@ class DoraBannerView @JvmOverloads constructor(
             MeasureSpec.EXACTLY -> {
                 MeasureSpec.getSize(heightMeasureSpec)
             }
-
             MeasureSpec.AT_MOST -> {
                 MeasureSpec.getSize(heightMeasureSpec)
             }
-
             else -> {
                 suggestedMinimumHeight
             }
@@ -664,12 +606,9 @@ class DoraBannerView @JvmOverloads constructor(
         bottom: Int
     ) {
         val childWidth = width
-
         for (i in 0 until childCount) {
             val child = getChildAt(i)
-
             val childLeft = i * childWidth
-
             child.layout(
                 childLeft,
                 0,
@@ -677,7 +616,6 @@ class DoraBannerView @JvmOverloads constructor(
                 height
             )
         }
-
         if (changed) {
             scrollTo(currentPage * width, 0)
         }
@@ -685,7 +623,6 @@ class DoraBannerView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-
         if (indicatorVisible && items.size > 1) {
             drawIndicator(canvas)
         }
@@ -696,16 +633,9 @@ class DoraBannerView @JvmOverloads constructor(
      */
     private fun drawIndicator(canvas: Canvas) {
         val count = items.size
-
-        val totalWidth =
-            count * indicatorRadius * 2 +
-                (count - 1) * indicatorSpace
-
+        val totalWidth = count * indicatorRadius * 2 + (count - 1) * indicatorSpace
         var startX = (width - totalWidth) / 2f
-
-        val centerY =
-            height - indicatorBottomMargin - indicatorRadius
-
+        val centerY = height - indicatorBottomMargin - indicatorRadius
         for (i in 0 until count) {
             indicatorPaint.color =
                 if (i == currentItem) {
@@ -713,14 +643,12 @@ class DoraBannerView @JvmOverloads constructor(
                 } else {
                     indicatorNormalColor
                 }
-
             canvas.drawCircle(
                 startX + indicatorRadius,
                 centerY,
                 indicatorRadius,
                 indicatorPaint
             )
-
             startX += indicatorRadius * 2 + indicatorSpace
         }
     }
@@ -729,27 +657,18 @@ class DoraBannerView @JvmOverloads constructor(
         if (items.size <= 1) {
             return super.onTouchEvent(event)
         }
-
         ensureVelocityTracker()
-
         velocityTracker?.addMovement(event)
-
         when (event.actionMasked) {
-
             MotionEvent.ACTION_DOWN -> {
                 stopAutoPlay()
-
                 scroller.abortAnimation()
-
                 downX = event.x
                 downY = event.y
                 lastX = event.x
-
                 dragging = false
                 moved = false
-
                 parent?.requestDisallowInterceptTouchEvent(true)
-
                 return true
             }
 
@@ -757,28 +676,17 @@ class DoraBannerView @JvmOverloads constructor(
                 val dx = event.x - lastX
                 val totalDx = event.x - downX
                 val totalDy = event.y - downY
-
                 if (!dragging) {
-                    if (
-                        abs(totalDx) > touchSlop &&
-                        abs(totalDx) > abs(totalDy)
-                    ) {
+                    if (abs(totalDx) > touchSlop && abs(totalDx) > abs(totalDy)) {
                         dragging = true
                         moved = true
                     }
                 }
-
                 if (dragging) {
-                    scrollBy(
-                        (-dx).toInt(),
-                        0
-                    )
-
+                    scrollBy((-dx).toInt(), 0)
                     limitScrollRange()
                 }
-
                 lastX = event.x
-
                 return true
             }
 
@@ -788,13 +696,9 @@ class DoraBannerView @JvmOverloads constructor(
                 } else {
                     startAutoPlay()
                 }
-
                 recycleVelocityTracker()
-
                 parent?.requestDisallowInterceptTouchEvent(false)
-
                 performClick()
-
                 return true
             }
 
@@ -802,15 +706,11 @@ class DoraBannerView @JvmOverloads constructor(
                 if (dragging) {
                     settleToNearestPage()
                 }
-
                 recycleVelocityTracker()
-
                 parent?.requestDisallowInterceptTouchEvent(false)
-
                 return true
             }
         }
-
         return true
     }
 
@@ -827,28 +727,16 @@ class DoraBannerView @JvmOverloads constructor(
             1000,
             maximumVelocity.toFloat()
         )
-
         val velocityX = velocityTracker?.xVelocity ?: 0f
-
         val currentScroll = scrollX
         val pageWidth = width
-
         if (pageWidth <= 0) {
             return
         }
-
-        val currentPageFloat =
-            currentScroll.toFloat() / pageWidth
-
-        var targetPage =
-            currentPageFloat.toInt()
-
-        val offset =
-            currentPageFloat - targetPage
-
-        if (
-            abs(velocityX) >= minimumVelocity
-        ) {
+        val currentPageFloat = currentScroll.toFloat() / pageWidth
+        var targetPage = currentPageFloat.toInt()
+        val offset = currentPageFloat - targetPage
+        if (abs(velocityX) >= minimumVelocity) {
             targetPage = if (velocityX < 0) {
                 targetPage + 1
             } else {
@@ -859,12 +747,10 @@ class DoraBannerView @JvmOverloads constructor(
                 targetPage++
             }
         }
-
         targetPage = targetPage.coerceIn(
             0,
             childCount - 1
         )
-
         smoothScrollToPage(targetPage)
     }
 
@@ -875,12 +761,7 @@ class DoraBannerView @JvmOverloads constructor(
         if (width <= 0) {
             return
         }
-
-        val targetPage =
-            ((scrollX.toFloat() / width) + 0.5f)
-                .toInt()
-                .coerceIn(0, childCount - 1)
-
+        val targetPage = ((scrollX.toFloat() / width) + 0.5f).toInt().coerceIn(0, childCount - 1)
         smoothScrollToPage(targetPage)
     }
 
@@ -888,22 +769,16 @@ class DoraBannerView @JvmOverloads constructor(
      * 平滑滚动到指定页面。
      */
     private fun smoothScrollToPage(page: Int) {
-        if (width <= 0 || childCount == 0) {
+        if (width <= 0 || isEmpty()) {
             return
         }
-
-        val targetPage =
-            page.coerceIn(0, childCount - 1)
-
+        val targetPage = page.coerceIn(0, childCount - 1)
         val targetX = targetPage * width
-
         val dx = targetX - scrollX
-
         if (dx == 0) {
             finishScroll(targetPage)
             return
         }
-
         scroller.startScroll(
             scrollX,
             0,
@@ -911,7 +786,6 @@ class DoraBannerView @JvmOverloads constructor(
             0,
             scrollDuration.toInt()
         )
-
         invalidate()
     }
 
@@ -919,9 +793,7 @@ class DoraBannerView @JvmOverloads constructor(
      * 限制手势滚动范围。
      */
     private fun limitScrollRange() {
-        val maxScroll =
-            max(0, (childCount - 1) * width)
-
+        val maxScroll = max(0, (childCount - 1) * width)
         if (scrollX < 0) {
             scrollTo(0, 0)
         } else if (scrollX > maxScroll) {
@@ -931,23 +803,13 @@ class DoraBannerView @JvmOverloads constructor(
 
     override fun computeScroll() {
         if (scroller.computeScrollOffset()) {
-            scrollTo(
-                scroller.currX,
-                scroller.currY
-            )
-
+            scrollTo(scroller.currX, scroller.currY)
             invalidate()
             return
         }
-
-        if (childCount > 0 && width > 0) {
-            val page =
-                (scrollX.toFloat() / width)
-                    .toInt()
-
-            if (
-                scrollX == page * width
-            ) {
+        if (isNotEmpty() && width > 0) {
+            val page = (scrollX.toFloat() / width).toInt()
+            if (scrollX == page * width) {
                 finishScroll(page)
             }
         }
@@ -960,37 +822,28 @@ class DoraBannerView @JvmOverloads constructor(
         if (items.isEmpty()) {
             return
         }
-
         if (loopEnabled && items.size > 1) {
-
-            when {
-                page == 0 -> {
+            when (page) {
+                0 -> {
                     currentItem = items.lastIndex
                     currentPage = items.size
-
                     scrollTo(
                         currentPage * width,
                         0
                     )
-
                     notifyPageChanged()
                 }
-
-                page == childCount - 1 -> {
+                childCount - 1 -> {
                     currentItem = 0
                     currentPage = 1
-
                     scrollTo(
                         currentPage * width,
                         0
                     )
-
                     notifyPageChanged()
                 }
-
                 else -> {
                     val newItem = page - 1
-
                     if (newItem != currentItem) {
                         currentItem = newItem
                         currentPage = page
@@ -998,18 +851,14 @@ class DoraBannerView @JvmOverloads constructor(
                     }
                 }
             }
-
         } else {
-            val newItem =
-                page.coerceIn(0, items.lastIndex)
-
+            val newItem = page.coerceIn(0, items.lastIndex)
             if (newItem != currentItem) {
                 currentItem = newItem
                 currentPage = newItem
                 notifyPageChanged()
             }
         }
-
         invalidate()
         startAutoPlay()
     }
@@ -1037,17 +886,14 @@ class DoraBannerView @JvmOverloads constructor(
 
     override fun onSaveInstanceState(): Parcelable {
         val bundle = Bundle()
-
         bundle.putParcelable(
             KEY_SUPER_STATE,
             super.onSaveInstanceState()
         )
-
         bundle.putInt(
             KEY_CURRENT_ITEM,
             currentItem
         )
-
         return bundle
     }
 
@@ -1057,16 +903,13 @@ class DoraBannerView @JvmOverloads constructor(
                 KEY_CURRENT_ITEM,
                 0
             )
-
             val superState =
                 state.getParcelable<Parcelable>(
                     KEY_SUPER_STATE
                 )
-
             super.onRestoreInstanceState(superState)
             return
         }
-
         super.onRestoreInstanceState(state)
     }
 
@@ -1121,7 +964,7 @@ class DoraBannerView @JvmOverloads constructor(
     /**
      * Banner 点击监听器。
      */
-    fun interface OnBannerClickListener {
+    interface OnBannerClickListener {
 
         /**
          * Banner 点击回调。
@@ -1129,16 +972,13 @@ class DoraBannerView @JvmOverloads constructor(
          * @param view Banner 控件。
          * @param position 当前 Banner 下标。
          */
-        fun onBannerClick(
-            view: DoraBannerView,
-            position: Int
-        )
+        fun onBannerClick(view: DoraBannerView, position: Int)
     }
 
     /**
      * Banner 页面变化监听器。
      */
-    fun interface OnPageChangedListener {
+    interface OnPageChangedListener {
 
         /**
          * 页面变化回调。
