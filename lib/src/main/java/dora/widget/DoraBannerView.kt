@@ -50,7 +50,7 @@ class DoraBannerView @JvmOverloads constructor(
     /**
      * Banner Adapter。
      */
-    private var adapter: BannerAdapter<*>? = null
+    private var adapter: BannerAdapter<*, *>? = null
 
     /**
      * 当前真实数据页面。
@@ -289,7 +289,7 @@ class DoraBannerView @JvmOverloads constructor(
      *     }
      * })
      */
-    fun setAdapter(adapter: BannerAdapter<*>) {
+    fun setAdapter(adapter: BannerAdapter<*, *>) {
         stopAutoPlay()
         this.adapter?.onDataSetChangedListener = null
         this.adapter = adapter
@@ -305,7 +305,7 @@ class DoraBannerView @JvmOverloads constructor(
     /**
      * 获取当前 Adapter。
      */
-    fun getAdapter(): BannerAdapter<*>? {
+    fun getAdapter(): BannerAdapter<*, *>? {
         return adapter
     }
 
@@ -361,9 +361,10 @@ class DoraBannerView @JvmOverloads constructor(
         val currentAdapter = adapter ?: return
         val child = currentAdapter.onCreateView(context)
         @Suppress("UNCHECKED_CAST")
-        (currentAdapter as BannerAdapter<Any?>)
+        (currentAdapter as BannerAdapter<Any, View>)
             .onBindView(
                 child,
+                currentAdapter.getItem(position) as Any,
                 position
             )
         child.setOnClickListener {
@@ -394,7 +395,7 @@ class DoraBannerView @JvmOverloads constructor(
      */
     fun setItems(drawables: List<Drawable>) {
         setAdapter(
-            object : BannerAdapter<Drawable>() {
+            object : BannerAdapter<Drawable, View>() {
 
                 override fun getItemCount(): Int {
                     return drawables.size
@@ -410,6 +411,7 @@ class DoraBannerView @JvmOverloads constructor(
 
                 override fun onBindView(
                     view: View,
+                    model: Drawable,
                     position: Int
                 ) {
                     (view as ImageView).setImageDrawable(drawables[position])
@@ -455,7 +457,7 @@ class DoraBannerView @JvmOverloads constructor(
      */
     fun setViews(views: List<View>) {
         setAdapter(
-            object : BannerAdapter<View>() {
+            object : BannerAdapter<View, View>() {
 
                 override fun getItemCount(): Int {
                     return views.size
@@ -467,6 +469,7 @@ class DoraBannerView @JvmOverloads constructor(
 
                 override fun onBindView(
                     view: View,
+                    model: View,
                     position: Int
                 ) {
 

@@ -6,9 +6,10 @@ import android.view.View
 /**
  * Banner Adapter。
  *
- * @param T Banner 数据类型。
+ * @param M Banner 数据类型。
+ * @param V Banner 条目界面。
  */
-abstract class BannerAdapter<T> {
+abstract class BannerAdapter<M, V : View> {
 
     /**
      * 获取 Banner 数量。
@@ -20,7 +21,7 @@ abstract class BannerAdapter<T> {
      *
      * 每个 Banner 页面对应一个 View。
      */
-    abstract fun onCreateView(context: Context): View
+    abstract fun onCreateView(context: Context): V
 
     /**
      * 绑定 Banner 数据。
@@ -29,7 +30,8 @@ abstract class BannerAdapter<T> {
      * @param position 数据位置。
      */
     abstract fun onBindView(
-        view: View,
+        view: V,
+        model: M,
         position: Int
     )
 
@@ -38,7 +40,7 @@ abstract class BannerAdapter<T> {
      *
      * 默认返回 null。
      */
-    open fun getItem(position: Int): T? {
+    open fun getItem(position: Int): M? {
         return null
     }
 
