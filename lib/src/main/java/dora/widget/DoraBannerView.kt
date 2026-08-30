@@ -7,7 +7,6 @@ import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.os.Parcelable
 import android.util.AttributeSet
-import android.util.Log
 import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.VelocityTracker
@@ -26,6 +25,7 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
 import androidx.core.view.isNotEmpty
+import androidx.core.graphics.withTranslation
 
 /**
  * 横幅轮播控件。
@@ -214,8 +214,6 @@ class DoraBannerView @JvmOverloads constructor(
     private val minimumVelocity = ViewConfiguration.get(context).scaledMinimumFlingVelocity
 
     /**
-     * VelocityTracker。
-     *
      * 用于计算手指抬起时的横向滑动速度。
      */
     private var velocityTracker: VelocityTracker? = null
@@ -295,26 +293,24 @@ class DoraBannerView @JvmOverloads constructor(
             return@Runnable
         }
         /*
-         * View 还没有完成布局。
+         * View 尚未完成布局。
+         *
+         * 这里直接结束本次任务。
+         *
+         * 不要再次 scheduleAutoPlay()。
+         * 下一次布局完成后会重新安排。
          */
-        if (width <= 0 || childCount <= 0) {
-            scheduleAutoPlay()
+        if (width <= 0 || height <= 0 || childCount <= 0) {
             return@Runnable
         }
         /*
          * 上一轮动画还没有结束。
-         *
-         * 不启动新的动画。
          */
         if (!scroller.isFinished) {
-            scheduleAutoPlay()
             return@Runnable
         }
         /*
-         * 当前页面已经是最后一个实际子 View。
-         *
-         * 理论上正常情况下不会长期停在这里，
-         * 但这里增加保护。
+         * 非循环模式已经到达最后一页。
          */
         if (currentPage >= childCount - 1 && !loopEnabled) {
             dispatchScrollStateChanged(SCROLL_STATE_IDLE)
@@ -445,17 +441,9 @@ class DoraBannerView @JvmOverloads constructor(
      * DoraBannerView 会重新创建所有 Banner View。
      */
     fun setAdapter(adapter: BannerAdapter<*, *>) {
-        Log.d(
-            "DoraBannerView",
-            "setAdapter BEFORE: this=${System.identityHashCode(this)}, adapter=$adapter, count=${adapter.getItemCount()}"
-        )
         stopAutoPlay()
         this.adapter?.onDataSetChangedListener = null
         this.adapter = adapter
-        Log.d(
-            "DoraBannerView",
-            "setAdapter AFTER: this=${System.identityHashCode(this)}, adapter=$this.adapter, count=${getItemCount()}"
-        )
         adapter.onDataSetChangedListener = {
             post {
                 rebuildAdapterViews()
@@ -549,7 +537,6 @@ class DoraBannerView @JvmOverloads constructor(
             syncCurrentPage()
             dispatchPageSelected()
             dispatchPageScrolled()
-            scheduleAutoPlay()
         }
         invalidate()
     }
@@ -606,28 +593,62 @@ class DoraBannerView @JvmOverloads constructor(
      *
      * 真正执行滚动由 autoPlayRunnable 完成。
      */
+    /**
+     * 安排下一次自动播放。
+     *
+     * 注意：
+     *
+     * 这里只负责注册一次自动播放任务。
+     * 不在这里递归等待 View 完成布局。
+     *
+     * View 的布局状态由 onLayout() 负责处理。
+     */
     private fun scheduleAutoPlay() {
+        /*
+         * 先取消之前的任务，
+         * 保证同一时间最多存在一个自动播放 Runnable。
+         */
         removeCallbacks(autoPlayRunnable)
+        /*
+         * View 尚未 attach。
+         */
         if (!isAttachedToWindow) {
             return
         }
+        /*
+         * 用户关闭自动播放。
+         */
         if (!isAutoPlayEnabled) {
             return
         }
+        /*
+         * 没有数据或者只有一个页面，
+         * 不需要自动播放。
+         */
         if (getItemCount() <= 1) {
             return
         }
         /*
-         * View 还没有完成布局。
+         * View 尚未完成布局。
          *
-         * 等待下一帧。
+         * 不在这里 postOnAnimation 递归等待。
+         *
+         * onLayout() 完成后会再次调用 scheduleAutoPlay()。
          */
-        if (width <= 0 || childCount <= 0) {
-            postOnAnimation {
-                scheduleAutoPlay()
-            }
+        if (width <= 0 || height <= 0 || childCount <= 0) {
             return
         }
+        /*
+         * 当前正在执行滚动动画。
+         *
+         * 等 finishScroll() 后重新安排。
+         */
+        if (!scroller.isFinished) {
+            return
+        }
+        /*
+         * 注册下一次自动播放。
+         */
         postDelayed(
             autoPlayRunnable,
             autoPlayInterval
@@ -641,45 +662,44 @@ class DoraBannerView @JvmOverloads constructor(
     /**
      * 设置 Drawable Banner。
      */
-    fun setItems(vararg drawables: Drawable) {
-        setItems(drawables.toList())
+    fun setBanners(vararg drawables: Drawable) {
+        setBanners(drawables.toList())
     }
 
     /**
      * 设置 Drawable Banner。
      */
-    fun setItems(drawables: List<Drawable>) {
+    fun setBanners(drawables: List<Drawable>) {
         setAdapter(object : BannerAdapter<Drawable, View>() {
 
-                override fun getItemCount(): Int {
-                    return drawables.size
-                }
+            override fun getItemCount(): Int {
+                return drawables.size
+            }
 
-                override fun onCreateView(context: Context): View {
-                    return ImageView(context).apply {
-                        scaleType = ImageView.ScaleType.CENTER_CROP
-                    }
-                }
-
-                override fun onBindView(
-                    view: View,
-                    model: Drawable,
-                    position: Int
-                ) {
-                    (view as ImageView).setImageDrawable(model)
-                }
-
-                override fun getItem(position: Int): Drawable? {
-                    return drawables.getOrNull(position)
+            override fun onCreateView(context: Context): View {
+                return ImageView(context).apply {
+                    scaleType = ImageView.ScaleType.CENTER_CROP
                 }
             }
-        )
+
+            override fun onBindView(
+                view: View,
+                model: Drawable,
+                position: Int
+            ) {
+                (view as ImageView).setImageDrawable(model)
+            }
+
+            override fun getItem(position: Int): Drawable? {
+                return drawables.getOrNull(position)
+            }
+        })
     }
 
     /**
      * 设置 DrawableRes Banner。
      */
-    fun setItems(@DrawableRes vararg drawableResIds: Int) {
+    fun setBanners(@DrawableRes vararg drawableResIds: Int) {
         val drawables = ArrayList<Drawable>()
         drawableResIds.forEach { resId ->
             ContextCompat.getDrawable(context, resId)
@@ -687,61 +707,7 @@ class DoraBannerView @JvmOverloads constructor(
                     drawables.add(it)
                 }
         }
-        setItems(drawables)
-    }
-
-    /**
-     * 设置自定义 View Banner。
-     */
-    fun setViews(vararg views: View) {
-        setViews(views.toList())
-    }
-
-    /**
-     * 设置自定义 View Banner。
-     *
-     * 注意：
-     *
-     * 这里为了兼容旧的 setViews API，
-     * Adapter 每次创建 View 时使用列表中的对应 View。
-     *
-     * 如果使用复杂 Banner，
-     * 更推荐直接使用 BannerAdapter。
-     */
-    fun setViews(views: List<View>) {
-        setAdapter(object : BannerAdapter<View, View>() {
-
-                override fun getItemCount(): Int {
-                    return views.size
-                }
-
-                override fun onCreateView(context: Context): View {
-                    /*
-                     * 返回一个占位 View。
-                     *
-                     * 真正的 View 在 getItem() 中提供。
-                     */
-                    return views.firstOrNull() ?: View(context)
-                }
-
-                override fun onBindView(
-                    view: View,
-                    model: View,
-                    position: Int
-                ) {
-                    /*
-                     * 保留原有 API。
-                     *
-                     * 如果项目需要真正复用 View，
-                     * 推荐直接实现 BannerAdapter。
-                     */
-                }
-
-                override fun getItem(position: Int): View? {
-                    return views.getOrNull(position)
-                }
-            }
-        )
+        setBanners(drawables)
     }
 
     /**
@@ -764,7 +730,7 @@ class DoraBannerView @JvmOverloads constructor(
             }
         }
         list.add(drawable)
-        setItems(list)
+        setBanners(list)
     }
 
     /**
@@ -778,33 +744,9 @@ class DoraBannerView @JvmOverloads constructor(
     }
 
     /**
-     * 添加自定义 View Banner。
-     */
-    fun addBanner(view: View) {
-        val views = ArrayList<View>()
-        val currentAdapter = adapter
-        if (currentAdapter != null) {
-            for (i in 0 until getItemCount()) {
-                currentAdapter.getItem(i)
-                    ?.let {
-                        if (it is View) {
-                            views.add(it)
-                        }
-                    }
-            }
-        }
-        views.add(view)
-        setViews(views)
-    }
-
-    /**
      * 清空所有 Banner。
      */
-    fun clearItems() {
-        Log.d(
-            "DoraBannerView",
-            "clearItems: this=${System.identityHashCode(this)}"
-        )
+    fun clearBanners() {
         stopAutoPlay()
         adapter?.onDataSetChangedListener = null
         adapter = null
@@ -985,11 +927,27 @@ class DoraBannerView @JvmOverloads constructor(
          */
         super.dispatchDraw(canvas)
         /*
-         * 最后绘制 Indicator，
-         * 确保 Indicator 不会被子 View 覆盖。
+         * Indicator 属于 DoraBannerView 自己的固定内容，
+         * 不应该跟随 Banner 的 scrollX 一起移动。
+         *
+         * ViewGroup 当前 Canvas 会受到 scrollX 的影响，
+         * 因此这里需要抵消 Banner 的水平滚动。
          */
         if (indicatorVisible && getItemCount() > 1) {
-            drawIndicator(canvas)
+            canvas.withTranslation(scrollX.toFloat(), 0f) {
+                /*
+                 * 抵消 View 当前的 scrollX。
+                 *
+                 * 例如：
+                 *
+                 *     scrollX = width
+                 *
+                 * Canvas 中的内容相当于向左移动了 width，
+                 * Indicator 需要向右补偿 width，
+                 * 才能始终固定在 DoraBannerView 的底部。
+                 */
+                drawIndicator(this)
+            }
         }
     }
 
@@ -1177,6 +1135,43 @@ class DoraBannerView @JvmOverloads constructor(
     // =========================================================================
     // Touch
     // =========================================================================
+
+    override fun onInterceptTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                downX = event.x
+                downY = event.y
+                lastX = event.x
+                dragging = false
+                moved = false
+                stopAutoPlay()
+                scroller.abortAnimation()
+                ensureVelocityTracker()
+                velocityTracker?.addMovement(event)
+                return false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dx = event.x - downX
+                val dy = event.y - downY
+                if (!dragging &&
+                    abs(dx) > touchSlop &&
+                    abs(dx) > abs(dy)
+                ) {
+                    dragging = true
+                    moved = true
+                    dispatchScrollStateChanged(SCROLL_STATE_DRAGGING)
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    return true
+                }
+            }
+            MotionEvent.ACTION_UP,
+            MotionEvent.ACTION_CANCEL -> {
+                recycleVelocityTracker()
+                parent?.requestDisallowInterceptTouchEvent(false)
+            }
+        }
+        return dragging
+    }
 
     /**
      * 处理 Banner 手势。
@@ -1381,7 +1376,7 @@ class DoraBannerView @JvmOverloads constructor(
             return
         }
         val targetPage = (scrollX.toFloat() / width + 0.5f)
-                .toInt().coerceIn(0, childCount - 1)
+            .toInt().coerceIn(0, childCount - 1)
         dispatchScrollStateChanged(SCROLL_STATE_SETTLING)
         smoothScrollToPage(targetPage)
     }
@@ -1451,6 +1446,7 @@ class DoraBannerView @JvmOverloads constructor(
             scrollX < 0 -> {
                 scrollTo(0, 0)
             }
+
             scrollX > maxScroll -> {
                 scrollTo(maxScroll, 0)
             }
@@ -1503,8 +1499,8 @@ class DoraBannerView @JvmOverloads constructor(
             return
         }
         val page = (scrollX.toFloat() / width.toFloat())
-                .roundToInt()
-                .coerceIn(0, childCount - 1)
+            .roundToInt()
+            .coerceIn(0, childCount - 1)
         /*
          * 最终位置可能因为整数误差没有完全落在页面边界，
          * 强制修正。
@@ -1701,6 +1697,14 @@ class DoraBannerView @JvmOverloads constructor(
         if (changed) {
             syncCurrentPage()
         }
+        /*
+         * Layout 已经完成，
+         * 此时 width / height / childCount 都已经有效。
+         *
+         * scheduleAutoPlay() 内部会保证：
+         * 同一时间只有一个 Runnable。
+         */
+        scheduleAutoPlay()
     }
 
     // =========================================================================
@@ -1725,9 +1729,6 @@ class DoraBannerView @JvmOverloads constructor(
      */
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        /*
-         * 确保当前页面已经同步。
-         */
         post {
             if (width > 0 && isNotEmpty()) {
                 syncCurrentPage()
