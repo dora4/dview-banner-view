@@ -37,12 +37,8 @@ abstract class BannerAdapter<M, V : View> {
 
     /**
      * 获取指定位置的数据。
-     *
-     * 默认返回 null。
      */
-    open fun getItem(position: Int): M? {
-        return null
-    }
+    abstract fun getItem(position: Int): M?
 
     /**
      * 数据刷新监听。

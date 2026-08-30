@@ -7,6 +7,7 @@ import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.os.Parcelable
 import android.util.AttributeSet
+import android.util.Log
 import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.VelocityTracker
@@ -359,23 +360,17 @@ class DoraBannerView @JvmOverloads constructor(
      */
     private fun addAdapterView(position: Int) {
         val currentAdapter = adapter ?: return
+        Log.d("DoraBanner", "addAdapterView position=$position, count=${currentAdapter.getItemCount()}")
         val child = currentAdapter.onCreateView(context)
-        @Suppress("UNCHECKED_CAST")
-        (currentAdapter as BannerAdapter<Any, View>)
-            .onBindView(
-                child,
-                currentAdapter.getItem(position) as Any,
-                position
-            )
-        child.setOnClickListener {
-            if (!moved) {
-                onBannerClickListener
-                    ?.onBannerClick(
-                        this,
-                        currentItem
-                    )
-            }
-        }
+        Log.d("DoraBanner", "onCreateView finished position=$position")
+        val item = currentAdapter.getItem(position) as Any
+        Log.d("DoraBanner", "getItem finished position=$position, item=$item")
+        (currentAdapter as BannerAdapter<Any, View>).onBindView(
+            child,
+            item,
+            position
+        )
+        Log.d("DoraBanner", "onBindView finished position=$position")
         addView(child)
     }
 
