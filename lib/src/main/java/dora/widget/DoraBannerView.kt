@@ -252,25 +252,12 @@ class DoraBannerView @JvmOverloads constructor(
     private var moved = false
 
     /**
-     * 自动播放 Runnable。
+     * 当前是否已经安排了自动播放任务。
      *
-     * 自动播放流程：
-     *
-     *     等待 interval
-     *         ↓
-     *     currentPage + 1
-     *         ↓
-     *     Scroller 动画
-     *         ↓
-     *     computeScroll()
-     *         ↓
-     *     finishScroll()
-     *         ↓
-     *     再次等待 interval
-     *
-     * 这样可以保证每一次动画结束后，
-     * 才开始计算下一次自动播放。
+     * 防止 onLayout() 等生命周期方法反复重置倒计时。
      */
+    private var autoPlayScheduled = false
+
     /**
      * 自动播放任务。
      *
@@ -289,6 +276,7 @@ class DoraBannerView @JvmOverloads constructor(
      *     再次等待 interval
      */
     private val autoPlayRunnable = Runnable {
+        autoPlayScheduled = false
         if (!isAttachedToWindow) {
             return@Runnable
         }
@@ -296,46 +284,21 @@ class DoraBannerView @JvmOverloads constructor(
             return@Runnable
         }
         val count = getItemCount()
-        /*
-         * 没有数据或者只有一个页面，
-         * 不需要自动播放。
-         */
         if (count <= 1) {
             return@Runnable
         }
-        /*
-         * View 尚未完成布局。
-         *
-         * 这里不要直接递归 schedule。
-         * onLayout() 会负责重新启动自动播放。
-         */
         if (width <= 0 || height <= 0 || childCount <= 0) {
             return@Runnable
         }
-        /*
-         * 理论上 scheduleAutoPlay() 已经保证
-         * Scroller 处于完成状态。
-         *
-         * 如果此时仍然有动画，
-         * 由 finishScroll() 在动画结束后重新调度。
-         */
         if (!scroller.isFinished) {
             return@Runnable
         }
-        /*
-         * 非循环模式已经到达最后一页。
-         */
         if (!loopEnabled && currentPage >= childCount - 1) {
             dispatchScrollStateChanged(SCROLL_STATE_IDLE)
             return@Runnable
         }
-        /*
-         * 开始下一页动画。
-         */
         dispatchScrollStateChanged(SCROLL_STATE_SETTLING)
-        smoothScrollToPage(
-            currentPage + 1
-        )
+        smoothScrollToPage(currentPage + 1)
     }
 
     init {
@@ -625,54 +588,45 @@ class DoraBannerView @JvmOverloads constructor(
      */
     private fun scheduleAutoPlay() {
         /*
-         * 先取消旧任务。
-         *
-         * 保证不会出现多个自动播放任务同时存在。
-         */
-        removeCallbacks(autoPlayRunnable)
-        /*
-         * 当前没有开启自动播放。
+         * 未开启自动播放。
          */
         if (!isAutoPlayEnabled) {
             return
         }
         /*
-         * View 还没有 attach。
-         *
-         * onAttachedToWindow() 会重新调用。
+         * View 尚未 attach。
          */
         if (!isAttachedToWindow) {
             return
         }
         /*
-         * 数据不足两个页面，
-         * 没有自动播放意义。
+         * 数据不足两个页面。
          */
         if (getItemCount() <= 1) {
             return
         }
         /*
-         * View 还没有完成布局。
-         *
-         * onLayout() 完成后会重新调用。
+         * View 尚未完成布局。
          */
         if (width <= 0 || height <= 0 || childCount <= 0) {
             return
         }
         /*
-         * 当前还有滚动动画。
+         * 当前正在滚动。
          *
-         * 不重复安排。
-         *
-         * finishScroll() 会在动画完成后再次调用
-         * scheduleAutoPlay()。
+         * 等 finishScroll() 后再重新安排。
          */
         if (!scroller.isFinished) {
             return
         }
         /*
-         * 注册下一次自动播放。
+         * 已经有一个自动播放任务，
+         * 不要再次 postDelayed。
          */
+        if (autoPlayScheduled) {
+            return
+        }
+        autoPlayScheduled = true
         postDelayed(
             autoPlayRunnable,
             autoPlayInterval
@@ -905,6 +859,7 @@ class DoraBannerView @JvmOverloads constructor(
      */
     fun stopAutoPlay() {
         removeCallbacks(autoPlayRunnable)
+        autoPlayScheduled = false
     }
 
     // =========================================================================
@@ -1243,11 +1198,6 @@ class DoraBannerView @JvmOverloads constructor(
                 lastX = event.x
                 dragging = false
                 moved = false
-                /*
-                 * Banner 正在处理水平滑动，
-                 * 暂时禁止父 View 抢事件。
-                 */
-                parent?.requestDisallowInterceptTouchEvent(true)
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
@@ -1724,20 +1674,9 @@ class DoraBannerView @JvmOverloads constructor(
                 height
             )
         }
-        /*
-         * 尺寸变化后，
-         * 重新同步当前页面。
-         */
         if (changed) {
             syncCurrentPage()
         }
-        /*
-         * Layout 已经完成，
-         * 此时 width / height / childCount 都已经有效。
-         *
-         * scheduleAutoPlay() 内部会保证：
-         * 同一时间只有一个 Runnable。
-         */
         scheduleAutoPlay()
     }
 
