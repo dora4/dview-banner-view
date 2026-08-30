@@ -76,13 +76,23 @@ class DoraBannerView @JvmOverloads constructor(
      * 自动播放任务。
      */
     private val autoPlayRunnable = Runnable {
-        if (
-            isAutoPlayEnabled &&
-            getItemCount() > 1
-        ) {
-            dispatchScrollStateChanged(SCROLL_STATE_SETTLING)
-            smoothScrollToPage(currentPage + 1)
+        if (!isAttachedToWindow) {
+            return@Runnable
         }
+        if (!isAutoPlayEnabled || getItemCount() <= 1) {
+            return@Runnable
+        }
+        if (width <= 0 || childCount <= 0) {
+            startAutoPlay()
+            return@Runnable
+        }
+        // 如果之前的动画还没有结束，不重复启动。
+        if (scroller.isFinished.not()) {
+            startAutoPlay()
+            return@Runnable
+        }
+        dispatchScrollStateChanged(SCROLL_STATE_SETTLING)
+        smoothScrollToPage(currentPage + 1)
     }
 
     /**
@@ -640,6 +650,12 @@ class DoraBannerView @JvmOverloads constructor(
         if (!isAutoPlayEnabled || getItemCount() <= 1) {
             return
         }
+        if (width <= 0 || childCount <= 0) {
+            post {
+                startAutoPlay()
+            }
+            return
+        }
         removeCallbacks(autoPlayRunnable)
         postDelayed(
             autoPlayRunnable,
@@ -688,8 +704,8 @@ class DoraBannerView @JvmOverloads constructor(
         return indicatorVisible
     }
 
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
+    override fun dispatchDraw(canvas: Canvas) {
+        super.dispatchDraw(canvas)
         if (indicatorVisible && getItemCount() > 1) {
             drawIndicator(canvas)
         }
@@ -1030,6 +1046,8 @@ class DoraBannerView @JvmOverloads constructor(
      */
     private fun smoothScrollToPage(page: Int) {
         if (width <= 0 || childCount <= 0) {
+            dispatchScrollStateChanged(SCROLL_STATE_IDLE)
+            startAutoPlay()
             return
         }
         val targetPage = page.coerceIn(0, childCount - 1)
@@ -1065,14 +1083,20 @@ class DoraBannerView @JvmOverloads constructor(
         if (scroller.computeScrollOffset()) {
             scrollTo(scroller.currX, scroller.currY)
             dispatchPageScrolled()
-            invalidate()
+            postInvalidateOnAnimation()
             return
         }
-        if (isNotEmpty() && width > 0) {
-            val page = (scrollX.toFloat() / width).toInt()
-            if (scrollX == page * width) {
-                finishScroll(page)
-            }
+        if (childCount <= 0 || width <= 0) {
+            return
+        }
+        val page = (scrollX.toFloat() / width)
+            .toInt()
+            .coerceIn(
+                0,
+                childCount - 1
+            )
+        if (scrollX == page * width) {
+            finishScroll(page)
         }
     }
 
