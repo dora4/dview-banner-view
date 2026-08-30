@@ -7,7 +7,6 @@ import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.os.Parcelable
 import android.util.AttributeSet
-import android.util.Log
 import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.VelocityTracker
@@ -360,17 +359,14 @@ class DoraBannerView @JvmOverloads constructor(
      */
     private fun addAdapterView(position: Int) {
         val currentAdapter = adapter ?: return
-        Log.d("DoraBanner", "addAdapterView position=$position, count=${currentAdapter.getItemCount()}")
         val child = currentAdapter.onCreateView(context)
-        Log.d("DoraBanner", "onCreateView finished position=$position")
-        val item = currentAdapter.getItem(position) as Any
-        Log.d("DoraBanner", "getItem finished position=$position, item=$item")
+        val item = currentAdapter.getItem(position) ?: return
+        @Suppress("UNCHECKED_CAST")
         (currentAdapter as BannerAdapter<Any, View>).onBindView(
             child,
             item,
             position
         )
-        Log.d("DoraBanner", "onBindView finished position=$position")
         addView(child)
     }
 
@@ -873,7 +869,6 @@ class DoraBannerView @JvmOverloads constructor(
     // -------------------------------------------------------------------------
     // Touch
     // -------------------------------------------------------------------------
-
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (getItemCount() <= 1) {
             return super.onTouchEvent(event)
@@ -890,7 +885,11 @@ class DoraBannerView @JvmOverloads constructor(
                 dragging = false
                 moved = false
                 parent?.requestDisallowInterceptTouchEvent(true)
-                dispatchScrollStateChanged(SCROLL_STATE_DRAGGING)
+                // 注意：
+                // 这里不能进入 DRAGGING。
+                //
+                // 只有真正超过 touchSlop 并确认横向移动后，
+                // 才进入 SCROLL_STATE_DRAGGING。
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
@@ -899,8 +898,10 @@ class DoraBannerView @JvmOverloads constructor(
                 val totalDy = event.y - downY
                 if (!dragging) {
                     if (abs(totalDx) > touchSlop && abs(totalDx) > abs(totalDy)) {
+                        // 到这里才算真正开始拖动
                         dragging = true
                         moved = true
+                        dispatchScrollStateChanged(SCROLL_STATE_DRAGGING)
                     }
                 }
                 if (dragging) {
@@ -913,9 +914,18 @@ class DoraBannerView @JvmOverloads constructor(
             }
             MotionEvent.ACTION_UP -> {
                 if (dragging) {
+                    // 真正拖动过：
+                    // DRAGGING -> SETTLING -> IDLE
                     handleRelease()
                 } else {
-                    dispatchScrollStateChanged(SCROLL_STATE_IDLE)
+                    // 没有真正开始移动：
+                    // 不应该出现 DRAGGING。
+                    dispatchScrollStateChanged(
+                        SCROLL_STATE_IDLE
+                    )
+                    if (!moved) {
+                        performBannerClick()
+                    }
                     startAutoPlay()
                 }
                 recycleVelocityTracker()
@@ -925,9 +935,12 @@ class DoraBannerView @JvmOverloads constructor(
             }
             MotionEvent.ACTION_CANCEL -> {
                 if (dragging) {
+                    // 已经真正拖动过，回到最近页面
                     settleToNearestPage()
                 } else {
+                    // 从未真正移动，不经过 DRAGGING
                     dispatchScrollStateChanged(SCROLL_STATE_IDLE)
+                    startAutoPlay()
                 }
                 recycleVelocityTracker()
                 parent?.requestDisallowInterceptTouchEvent(false)
@@ -940,6 +953,15 @@ class DoraBannerView @JvmOverloads constructor(
     override fun performClick(): Boolean {
         super.performClick()
         return true
+    }
+
+    private fun performBannerClick() {
+        val count = getItemCount()
+        if (count <= 0) {
+            return
+        }
+        val position = currentItem.coerceIn(0, count - 1)
+        onBannerClickListener?.onBannerClick(this, position)
     }
 
     /**
