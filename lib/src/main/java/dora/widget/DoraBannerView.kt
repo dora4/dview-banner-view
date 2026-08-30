@@ -951,33 +951,35 @@ class DoraBannerView @JvmOverloads constructor(
      * 手指释放。
      */
     private fun handleRelease() {
-        velocityTracker?.computeCurrentVelocity(1000, maximumVelocity.toFloat())
-        val velocityX = velocityTracker?.xVelocity ?: 0f
         val pageWidth = width
-        if (pageWidth <= 0) {
+        if (pageWidth <= 0 || childCount <= 0 || getItemCount() <= 1) {
+            dispatchScrollStateChanged(SCROLL_STATE_IDLE)
+            startAutoPlay()
             return
         }
+        velocityTracker?.computeCurrentVelocity(
+            1000,
+            maximumVelocity.toFloat()
+        )
+        val velocityX = velocityTracker?.xVelocity ?: 0f
         val currentScroll = scrollX
         val currentPageFloat = currentScroll.toFloat() / pageWidth
         var targetPage = currentPageFloat.toInt()
         val offset = currentPageFloat - targetPage
         if (abs(velocityX) >= minimumVelocity) {
-            targetPage =
-                if (velocityX < 0) {
-                    targetPage + 1
-                } else {
-                    targetPage
-                }
-        } else {
-            if (offset >= 0.5f) {
-                targetPage++
+            targetPage = if (velocityX < 0) {
+                targetPage + 1
+            } else {
+                targetPage
             }
+        } else if (offset >= 0.5f) {
+            targetPage++
         }
-        targetPage =
-            targetPage.coerceIn(
-                0,
-                childCount - 1
-            )
+        // childCount > 0 后才允许 coerceIn。
+        targetPage = targetPage.coerceIn(
+            0,
+            childCount - 1
+        )
         dispatchScrollStateChanged(SCROLL_STATE_SETTLING)
         smoothScrollToPage(targetPage)
     }
@@ -986,11 +988,18 @@ class DoraBannerView @JvmOverloads constructor(
      * 回到最近页面。
      */
     private fun settleToNearestPage() {
-        if (width <= 0) {
+        if (width <= 0 || childCount <= 0 || getItemCount() <= 1) {
+            dispatchScrollStateChanged(SCROLL_STATE_IDLE)
+            startAutoPlay()
             return
         }
-        val targetPage = (scrollX.toFloat() / width + 0.5f).toInt()
-                .coerceIn(0, childCount - 1)
+        val targetPage =
+            (scrollX.toFloat() / width + 0.5f)
+                .toInt()
+                .coerceIn(
+                    0,
+                    childCount - 1
+                )
         dispatchScrollStateChanged(SCROLL_STATE_SETTLING)
         smoothScrollToPage(targetPage)
     }
