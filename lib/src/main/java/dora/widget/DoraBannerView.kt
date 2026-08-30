@@ -564,26 +564,6 @@ class DoraBannerView @JvmOverloads constructor(
     /**
      * 安排下一次自动播放。
      *
-     * 注意：
-     *
-     * 这里只负责“等待”，
-     * 不负责执行页面滚动。
-     *
-     * 真正执行滚动由 autoPlayRunnable 完成。
-     */
-    /**
-     * 安排下一次自动播放。
-     *
-     * 注意：
-     *
-     * 这里只负责注册一次自动播放任务。
-     * 不在这里递归等待 View 完成布局。
-     *
-     * View 的布局状态由 onLayout() 负责处理。
-     */
-    /**
-     * 安排下一次自动播放。
-     *
      * 自动播放始终只有一个 Runnable。
      */
     private fun scheduleAutoPlay() {
