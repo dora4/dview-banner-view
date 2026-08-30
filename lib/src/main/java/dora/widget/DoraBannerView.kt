@@ -7,6 +7,7 @@ import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.os.Parcelable
 import android.util.AttributeSet
+import android.util.Log
 import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.VelocityTracker
@@ -23,6 +24,8 @@ import dora.widget.banner.BannerAdapter
 import dora.widget.banner.R
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.roundToInt
+import androidx.core.view.isNotEmpty
 
 /**
  * 横幅轮播控件。
@@ -271,45 +274,57 @@ class DoraBannerView @JvmOverloads constructor(
      * 才开始计算下一次自动播放。
      */
     private val autoPlayRunnable = Runnable {
+        /*
+         * View 已经离开 Window。
+         */
         if (!isAttachedToWindow) {
             return@Runnable
         }
+        /*
+         * 用户关闭自动播放。
+         */
         if (!isAutoPlayEnabled) {
             return@Runnable
         }
         val count = getItemCount()
+        /*
+         * 没有数据或者只有一个页面，
+         * 不需要自动播放。
+         */
         if (count <= 1) {
             return@Runnable
         }
+        /*
+         * View 还没有完成布局。
+         */
         if (width <= 0 || childCount <= 0) {
             scheduleAutoPlay()
             return@Runnable
         }
         /*
-         * 如果此时还有动画没有结束，
-         * 不应该再次启动动画。
+         * 上一轮动画还没有结束。
+         *
+         * 不启动新的动画。
          */
         if (!scroller.isFinished) {
             scheduleAutoPlay()
             return@Runnable
         }
-        dispatchScrollStateChanged(
-            SCROLL_STATE_SETTLING
-        )
         /*
-         * 自动播放永远向下一个虚拟页面移动。
+         * 当前页面已经是最后一个实际子 View。
          *
-         * 例如：
-         *
-         *     2 | 0 | 1 | 2 | 0
-         *                 ↑
-         *
-         * 下一次会进入最后面的虚拟 0，
-         * finishScroll() 再瞬间修正到真实页面 0。
+         * 理论上正常情况下不会长期停在这里，
+         * 但这里增加保护。
          */
-        smoothScrollToPage(
-            currentPage + 1
-        )
+        if (currentPage >= childCount - 1 && !loopEnabled) {
+            dispatchScrollStateChanged(SCROLL_STATE_IDLE)
+            return@Runnable
+        }
+        /*
+         * 自动播放向下一页移动。
+         */
+        dispatchScrollStateChanged(SCROLL_STATE_SETTLING)
+        smoothScrollToPage(currentPage + 1)
     }
 
     init {
@@ -336,7 +351,7 @@ class DoraBannerView @JvmOverloads constructor(
             isAutoPlayEnabled =
                 getBoolean(
                     R.styleable.DoraBannerView_dview_bv_autoPlay,
-                    true
+                    isAutoPlayEnabled
                 )
             /**
              * 自动播放间隔。
@@ -374,7 +389,7 @@ class DoraBannerView @JvmOverloads constructor(
             indicatorVisible =
                 getBoolean(
                     R.styleable.DoraBannerView_dview_bv_indicatorVisible,
-                    false
+                    indicatorVisible
                 )
             /**
              * Indicator 半径。
@@ -430,23 +445,22 @@ class DoraBannerView @JvmOverloads constructor(
      * DoraBannerView 会重新创建所有 Banner View。
      */
     fun setAdapter(adapter: BannerAdapter<*, *>) {
+        Log.d(
+            "DoraBannerView",
+            "setAdapter BEFORE: this=${System.identityHashCode(this)}, adapter=$adapter, count=${adapter.getItemCount()}"
+        )
         stopAutoPlay()
-        /*
-         * 移除旧 Adapter 的数据变化监听。
-         */
         this.adapter?.onDataSetChangedListener = null
         this.adapter = adapter
-        /*
-         * 监听 Adapter 数据变化。
-         */
+        Log.d(
+            "DoraBannerView",
+            "setAdapter AFTER: this=${System.identityHashCode(this)}, adapter=$this.adapter, count=${getItemCount()}"
+        )
         adapter.onDataSetChangedListener = {
             post {
                 rebuildAdapterViews()
             }
         }
-        /*
-         * 保证当前页面仍然处于合法范围。
-         */
         currentItem =
             currentItem.coerceIn(
                 0,
@@ -593,45 +607,27 @@ class DoraBannerView @JvmOverloads constructor(
      * 真正执行滚动由 autoPlayRunnable 完成。
      */
     private fun scheduleAutoPlay() {
-        /*
-         * 删除旧任务，避免重复调度。
-         */
         removeCallbacks(autoPlayRunnable)
-        /*
-         * View 尚未加入 Window 时，
-         * 不应该启动自动播放。
-         */
         if (!isAttachedToWindow) {
             return
         }
-        /*
-         * 用户关闭自动播放。
-         */
         if (!isAutoPlayEnabled) {
             return
         }
-        /*
-         * 只有一个页面时没有播放意义。
-         */
         if (getItemCount() <= 1) {
             return
         }
         /*
-         * View 尚未完成测量时，
-         * 等待下一帧重新尝试。
+         * View 还没有完成布局。
          *
-         * 使用 postOnAnimation，
-         * 避免不断向主线程堆积 Runnable。
+         * 等待下一帧。
          */
-        if (width <= 0 || childCount <= 1) {
+        if (width <= 0 || childCount <= 0) {
             postOnAnimation {
                 scheduleAutoPlay()
             }
             return
         }
-        /*
-         * 延迟指定时间后执行自动播放。
-         */
         postDelayed(
             autoPlayRunnable,
             autoPlayInterval
@@ -805,6 +801,10 @@ class DoraBannerView @JvmOverloads constructor(
      * 清空所有 Banner。
      */
     fun clearItems() {
+        Log.d(
+            "DoraBannerView",
+            "clearItems: this=${System.identityHashCode(this)}"
+        )
         stopAutoPlay()
         adapter?.onDataSetChangedListener = null
         adapter = null
@@ -1403,7 +1403,8 @@ class DoraBannerView @JvmOverloads constructor(
         }
         val targetPage = page.coerceIn(0, childCount - 1)
         val targetX = targetPage * width
-        val dx = targetX - scrollX
+        val currentX = scrollX
+        val dx = targetX - currentX
         /*
          * 已经在目标页面。
          */
@@ -1412,18 +1413,31 @@ class DoraBannerView @JvmOverloads constructor(
             return
         }
         /*
-         * 开始 Scroller 动画。
+         * 停止之前可能存在的动画。
+         */
+        scroller.abortAnimation()
+        /*
+         * duration == 0 时不要依赖 Scroller。
+         *
+         * 直接定位到目标页面。
+         */
+        if (scrollDuration <= 0L) {
+            scrollTo(targetX, 0)
+            finishScroll(targetPage)
+            return
+        }
+        /*
+         * 开始新的滚动动画。
          */
         scroller.startScroll(
-            scrollX,
+            currentX,
             0,
             dx,
             0,
             scrollDuration.toInt()
         )
         /*
-         * 必须请求下一帧，
-         * 让 View 持续调用 computeScroll()。
+         * 强制请求下一帧。
          */
         postInvalidateOnAnimation()
     }
@@ -1461,29 +1475,45 @@ class DoraBannerView @JvmOverloads constructor(
      *     finishScroll()
      */
     override fun computeScroll() {
+        /*
+         * Scroller 还在执行动画。
+         */
         if (scroller.computeScrollOffset()) {
-            scrollTo(scroller.currX, scroller.currY)
+            val currX = scroller.currX
+            if (scrollX != currX) {
+                scrollTo(currX, 0)
+            }
             dispatchPageScrolled()
             /*
-             * 请求下一帧继续执行。
+             * 非常重要：
+             *
+             * computeScroll() 本身不会自动持续调用，
+             * 必须主动请求下一帧。
              */
             postInvalidateOnAnimation()
             return
         }
         /*
          * Scroller 已经结束。
+         *
+         * 不再依赖 scroller.currX，
+         * 直接根据当前 scrollX 判断最终页面。
          */
         if (childCount <= 0 || width <= 0) {
             return
         }
-        val page = (scrollX.toFloat() / width).toInt().coerceIn(0, childCount - 1)
+        val page = (scrollX.toFloat() / width.toFloat())
+                .roundToInt()
+                .coerceIn(0, childCount - 1)
         /*
-         * 只有真正停在页面边界时，
-         * 才执行 finishScroll。
+         * 最终位置可能因为整数误差没有完全落在页面边界，
+         * 强制修正。
          */
-        if (scrollX == page * width) {
-            finishScroll(page)
+        val targetX = page * width
+        if (scrollX != targetX) {
+            scrollTo(targetX, 0)
         }
+        finishScroll(page)
     }
 
     /**
@@ -1696,11 +1726,14 @@ class DoraBannerView @JvmOverloads constructor(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         /*
-         * 使用 scheduleAutoPlay，
-         * 而不是直接 postDelayed，
-         * 统一检查当前状态。
+         * 确保当前页面已经同步。
          */
-        scheduleAutoPlay()
+        post {
+            if (width > 0 && isNotEmpty()) {
+                syncCurrentPage()
+            }
+            scheduleAutoPlay()
+        }
     }
 
     /**
