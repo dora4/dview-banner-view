@@ -1176,22 +1176,12 @@ class DoraBannerView @JvmOverloads constructor(
      *     IDLE
      */
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (getItemCount() <= 1) {
-            return super.onTouchEvent(event)
-        }
+        val count = getItemCount()
         ensureVelocityTracker()
         velocityTracker?.addMovement(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                /*
-                 * 用户开始操作时，
-                 * 暂停自动播放。
-                 */
                 stopAutoPlay()
-                /*
-                 * 如果之前还有动画，
-                 * 立即停止。
-                 */
                 scroller.abortAnimation()
                 downX = event.x
                 downY = event.y
@@ -1201,54 +1191,33 @@ class DoraBannerView @JvmOverloads constructor(
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
-                val dx = event.x - lastX
-                val totalDx = event.x - downX
-                val totalDy = event.y - downY
-                /*
-                 * 尚未开始拖动。
-                 */
-                if (!dragging) {
-                    /*
-                     * 必须满足：
-                     *
-                     * 1. 横向距离超过 touchSlop。
-                     * 2. 横向距离大于纵向距离。
-                     */
-                    if (abs(totalDx) > touchSlop && abs(totalDx) > abs(totalDy)) {
-                        dragging = true
-                        moved = true
-                        dispatchScrollStateChanged(SCROLL_STATE_DRAGGING)
+                if (count > 1) { // 只有多于1条才处理滑动
+                    val dx = event.x - lastX
+                    val totalDx = event.x - downX
+                    val totalDy = event.y - downY
+                    if (!dragging) {
+                        if (abs(totalDx) > touchSlop && abs(totalDx) > abs(totalDy)) {
+                            dragging = true
+                            moved = true
+                            dispatchScrollStateChanged(SCROLL_STATE_DRAGGING)
+                        }
                     }
-                }
-                /*
-                 * 真正拖动 Banner。
-                 */
-                if (dragging) {
-                    scrollBy((-dx).toInt(), 0)
-                    limitScrollRange()
-                    dispatchPageScrolled()
+                    if (dragging) {
+                        scrollBy((-dx).toInt(), 0)
+                        limitScrollRange()
+                        dispatchPageScrolled()
+                    }
                 }
                 lastX = event.x
                 return true
             }
             MotionEvent.ACTION_UP -> {
-                if (dragging) {
-                    /*
-                     * 用户真正拖动过，
-                     * 根据速度和偏移量决定最终页面。
-                     */
+                if (count > 1 && dragging) {
                     handleRelease()
                 } else {
-                    /*
-                     * 没有真正拖动，
-                     * 不应该产生 DRAGGING。
-                     */
                     dispatchScrollStateChanged(SCROLL_STATE_IDLE)
-                    /*
-                     * 没有移动则认为是点击。
-                     */
                     if (!moved) {
-                        performBannerClick()
+                        performBannerClick() // 单条数据这里执行点击
                     }
                     scheduleAutoPlay()
                 }
@@ -1258,11 +1227,7 @@ class DoraBannerView @JvmOverloads constructor(
                 return true
             }
             MotionEvent.ACTION_CANCEL -> {
-                if (dragging) {
-                    /*
-                     * 事件被父容器取消，
-                     * 回到最近的页面。
-                     */
+                if (count >1 && dragging) {
                     settleToNearestPage()
                 } else {
                     dispatchScrollStateChanged(SCROLL_STATE_IDLE)
